@@ -1,0 +1,278 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Отменять устаревший прогон при новом пуше — только для PR/веток.
+# На main НЕ отменяем: каждый коммит в main должен полностью пройти проверки
+# (частые пуши не должны гасить длинную race-джобу предыдущего коммита).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    name: vet · build · test (race)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: mdm_test
+          POSTGRES_USER: mdm
+          POSTGRES_PASSWORD: mdm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mdm -d mdm_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt (должно быть пусто)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::Не отформатировано (gofmt):"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: build
+        run: go build ./...
+
+      - name: test (race) + coverage gate
+        env:
+          TEST_POSTGRES_DSN: postgres://mdm:mdm@localhost:5432/mdm_test?sslmode=disable
+        run: |
+          # -coverpkg=./... инструментирует все пакеты модуля при каждом тест-бинаре,
+          # поэтому интеграционные тесты (gateway→storage и т.п.) считаются в агрегате.
+          # Из-за -coverpkg один и тот же файл/строка попадает в coverage.out НЕСКОЛЬКО
+          # раз (по разу на каждый тест-бинарь, который его инструментирует) — ниже
+          # блоки мержатся по (file:range) суммированием count ДО подсчёта процентов,
+          # иначе total задваивается/затраивается и проценты становятся бессмысленными.
+          go test -race -coverprofile=coverage.out -covermode=atomic -coverpkg=./... ./...
+
+          # ── Aggregate 70% + per-package floor 55% (единый проход) ─────────
+          # Пакеты, где ветки физически недостижимы на linux CI, и инфра-пакеты
+          # без бизнес-логики исключаются из ОБОИХ гейтов (раньше исключения были
+          # только в per-package и не применялись к агрегату):
+          #   status   — windows DefaultPath + fs-error ветки Write
+          #   service  — launchd/SCM install paths
+          #   keystore — CGO Security.framework / Windows NCrypt
+          #   mailer   — SMTP без внешнего сервиса не тестируется
+          #   cmd/*, proto, testutil, node_modules — инфра/генерённый код
+          LC_ALL=C awk '
+            NR == 1 { next }
+            {
+              key = $1
+              stmt[key] = $2 + 0
+              cnt[key] += $3 + 0
+            }
+            END {
+              for (key in stmt) {
+                split(key, a, ":"); file = a[1]
+                n = split(file, p, "/"); pkg = ""
+                for (i = 1; i < n; i++) pkg = (pkg == "") ? p[i] : pkg "/" p[i]
+                total[pkg] += stmt[key]
+                if (cnt[key] > 0) covered[pkg] += stmt[key]
+              }
+              fail = 0
+              grand_total = 0; grand_covered = 0
+              for (pkg in total) {
+                if (total[pkg] == 0) continue
+                if (pkg ~ /\/(status|service|keystore|mailer)$/) continue
+                if (pkg ~ /\/(testutil|proto)$/) continue
+                if (pkg ~ /\/cmd\//) continue
+                if (pkg ~ /node_modules/) continue
+                grand_total += total[pkg]
+                grand_covered += covered[pkg]
+                pct = covered[pkg] / total[pkg] * 100
+                if (pct < 55) {
+                  printf "FAIL: %s %.1f%% < 55%% floor\n", pkg, pct
+                  fail = 1
+                }
+              }
+              agg = grand_covered / grand_total * 100
+              printf "Coverage aggregate (excl. platform/infra pkgs): %.1f%%\n", agg
+              if (agg < 70) { printf "FAIL: aggregate %.1f%% < 70%%\n", agg; fail = 1 }
+              else print "OK: aggregate gate passed"
+              exit fail
+            }' coverage.out
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+
+  test-windows:
+    name: test (windows · cert store)
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Runtime-проверка Windows Certificate Store провайдера (NCrypt-подпись):
+      # платформенный код, который нельзя прогнать на ubuntu/macOS. Интеграционный
+      # тест сам создаёт/чистит самоподписанный серт с CNG-ключом в CurrentUser\My.
+      - name: test keystore (windows)
+        run: go test -v -timeout 2m ./internal/agent/keystore/...
+
+  windows-msi:
+    name: windows · MSI build + install
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Сборка MSI-инсталлятора (WiX v4) — валидатор корректности авторинга.
+      # enroll требует живого сервера, поэтому ставим без токена (раскладка
+      # файлов), а регистрацию службы в SCM проверяем прямым `agent install`.
+      - name: build agent.exe (windows/amd64)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: go build -o installer/windows/agent.exe ./cmd/agent
+
+      - name: stub ca.crt для упаковки
+        shell: pwsh
+        run: Set-Content -Path installer/windows/ca.crt -Value "MDM-CI-PLACEHOLDER-CA"
+
+      - name: install WiX
+        # Пин на v4 (схема agent.wxs — v4/wxs). v6+/v7 требуют принятия OSMF EULA
+        # и валятся в CI (WIX7015).
+        run: dotnet tool install --global wix --version 4.0.5
+
+      - name: wix build agent.msi
+        # -arch x64: иначе пакет x86 и ProgramFiles64Folder уезжает в Program Files (x86).
+        run: wix build installer/windows/agent.wxs -arch x64 -d Version=0.0.0 -d AgentExe=installer/windows/agent.exe -d CaCert=installer/windows/ca.crt -o agent.msi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-msi
+          path: agent.msi
+
+      # Реальная тихая установка MSI (без ENROLL_TOKEN → enroll-CA пропускается,
+      # кладутся только файлы). Проверяем, что бинарь лёг в Program Files.
+      - name: silent install MSI
+        shell: pwsh
+        run: |
+          $p = Start-Process msiexec -ArgumentList '/i','agent.msi','/quiet','/l*v','install.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { if (Test-Path install.log) { Get-Content install.log -Tail 50 }; throw "msiexec /i exit $($p.ExitCode)" }
+          $exe = Join-Path $Env:ProgramFiles 'RoutineOps\RoutineOps-agent.exe'
+          if (-not (Test-Path $exe)) { throw "agent.exe не установлен: $exe" }
+          Write-Host "OK: установлен $exe"
+
+      # Регистрация службы в SCM под LocalSystem — реальный путь install_windows.go
+      # (CreateService + recovery actions). Сервер не нужен: проверяем сам факт
+      # регистрации и снятия. Пути сертов фиктивные (читаются только при run).
+      - name: smoke регистрации Windows-службы
+        shell: pwsh
+        run: |
+          $exe = Join-Path $Env:ProgramFiles 'RoutineOps\RoutineOps-agent.exe'
+          & $exe install -server localhost:50051 -server-name localhost -cert C:\mdm\agent.crt -key C:\mdm\agent.key -ca C:\mdm\ca.crt
+          if ($LASTEXITCODE -ne 0) { throw "agent install exit $LASTEXITCODE" }
+          sc.exe query RoutineOps-agent
+          if ($LASTEXITCODE -ne 0) { throw "служба RoutineOps-agent не зарегистрирована" }
+          & $exe uninstall
+          if ($LASTEXITCODE -ne 0) { throw "agent uninstall exit $LASTEXITCODE" }
+          Write-Host "OK: служба зарегистрирована и снята"
+
+      # Тихое удаление MSI — должно убрать файлы (и службу через DoUninstall CA).
+      - name: silent uninstall MSI
+        shell: pwsh
+        run: |
+          $p = Start-Process msiexec -ArgumentList '/x','agent.msi','/quiet' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "msiexec /x exit $($p.ExitCode)" }
+          $exe = Join-Path $Env:ProgramFiles 'RoutineOps\RoutineOps-agent.exe'
+          if (Test-Path $exe) { throw "agent.exe остался после удаления: $exe" }
+          Write-Host "OK: MSI удалён, файлы убраны"
+
+  proto-breaking:
+    name: proto · buf breaking
+    # proto/ — общая зона, меняется только через PR; гейт совместимости и ставим
+    # на PR. Сравниваем контракт с main и валим сборку при ломающем изменении
+    # (ADR-4: поля только аддитивно, без удаления/смены номера/типа).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # buf читает базовый контракт из локальной ветки main — подтягиваем её.
+      - name: fetch main
+        run: git fetch origin main:main
+
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
+
+      - name: buf breaking (против main)
+        # subdir=proto: читать baseline с корнем модуля = proto/, как в buf.yaml
+        # текущей ветки. Иначе на бутстрап-PR (main ещё без buf.yaml) baseline
+        # именует файл proto/agent.proto, а текущая ветка — agent.proto, и buf
+        # ложно репортит «файл удалён».
+        run: buf breaking --against ".git#branch=main,subdir=proto"
+
+  cross-build:
+    name: cross-build агента
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: linux,   goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Кросс-компиляция агента под все целевые ОС — ловит поломки в
+      # платформенных файлах (priv_*/console_*/proc_*), невидимые при сборке на macOS.
+      - name: build agent ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -o /dev/null ./cmd/agent

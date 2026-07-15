@@ -1,0 +1,92 @@
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+bin/
+agent/bin/
+server/bin/
+
+# Состояние агента (runtime)
+*.seen
+forbidden_software.txt
+.policy-*.tmp
+agent_outbox/
+
+# Node / React
+web/node_modules/
+web/dist/
+web/build/
+web/.env
+web/.env.local
+
+# Env files
+.env
+.env.local
+*.env
+.env.dev
+!.env.dev.example
+.env.prod
+!.env.prod.example
+
+# Бэкапы БД (снимаются update.sh перед миграциями)
+backups/
+
+# Local config (contains secrets)
+config.local.yaml
+config.local.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Claude Code local skills config (личный тулинг, не часть проекта)
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Certificates (никогда не коммитим)
+*.pem
+*.crt
+*.key
+certs/
+
+# ChartDB exports (если храним временно)
+*.chartdb.json
+
+# Бинари релизов агента (раздаются сервером)
+releases/
+
+# MSI/PKG build artifacts (не коммитить — большие бинарники).
+# Исключение — КАНОНИЧЕСКИЕ универсальные инсталляторы и prebuilt darwin-бинарь:
+# их нельзя собрать на Linux-проде (WiX нужен Windows, cgo нужен macOS), поэтому
+# мейнтейнер собирает их один раз на релиз и кладёт в git. install.sh раздаёт
+# инсталляторы через /downloads, update.sh подписывает darwin-бинарь ключом деплойера.
+build/msi/mdm-agent.exe
+build/msi/*.msi
+!build/msi/RoutineOps-agent.msi
+build/pkg/*.pkg
+!build/pkg/RoutineOps-agent.pkg
+
+# Windows .syso — версионный билд-артефакт (manifest + PE-VERSIONINFO),
+# генерится `make syso-win`/`build-win` из cmd/agent/versioninfo.json + VERSION.
+cmd/agent/rsrc_windows_amd64.syso
+
+# encrypted backup of release signing key
+release_ed25519.pem*
+
+# Локальные артефакты и рабочие файлы (не для репозитория)
+/mdm-agent-v*.msi
+/mdm-agent-v*.pkg
+/agent_darwin_arm64
+/server_bin
+/publish-release-linux
+web/test-results/

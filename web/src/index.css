@@ -1,0 +1,183 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 18% 96%;
+    --foreground: 220 18% 18%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 18% 18%;
+    --border: 220 14% 88%;
+    --input: 220 14% 88%;
+    --primary: 220 18% 18%;
+    --primary-foreground: 40 18% 96%;
+    --secondary: 220 14% 92%;
+    --secondary-foreground: 220 18% 30%;
+    --muted: 220 14% 92%;
+    --muted-foreground: 220 10% 48%;
+    --accent: 220 14% 91%;
+    --accent-foreground: 220 18% 18%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --ring: 220 18% 18%;
+    --radius: 0.5rem;
+
+    /* Фирменные цвета знака: #2F3E5A (диск) и #6699FF (литера).
+       В светлой теме сам #6699FF на белом даёт ~2.4:1 — для текста
+       и границ берём затемнённый той же тональности. */
+    --brand: 220 72% 52%;
+    --brand-deep: 219 31% 27%;
+
+    --sidebar-glass: rgba(255, 255, 255, 0.72);
+    --sidebar-border: rgba(0, 0, 0, 0.07);
+    --nav-active-bg: rgba(0, 0, 0, 0.06);
+    --nav-hover-bg: rgba(0, 0, 0, 0.04);
+  }
+
+  .dark {
+    --background: 224 14% 10%;
+    --foreground: 220 10% 76%;
+    --card: 224 13% 13%;
+    --card-foreground: 220 10% 76%;
+    --border: 224 13% 20%;
+    --input: 224 13% 20%;
+    --primary: 220 10% 80%;
+    --primary-foreground: 224 14% 10%;
+    --secondary: 224 13% 17%;
+    --secondary-foreground: 220 10% 68%;
+    --muted: 224 13% 17%;
+    --muted-foreground: 220 8% 50%;
+    --accent: 224 13% 18%;
+    --accent-foreground: 220 10% 76%;
+    --destructive: 0 52% 38%;
+    --destructive-foreground: 220 10% 90%;
+    --ring: 220 8% 42%;
+
+    /* На тёмном фоне #6699FF читается как есть. */
+    --brand: 220 100% 70%;
+    --brand-deep: 219 31% 27%;
+
+    --sidebar-glass: rgba(15, 16, 22, 0.78);
+    --sidebar-border: rgba(255, 255, 255, 0.06);
+    --nav-active-bg: rgba(255, 255, 255, 0.07);
+    --nav-hover-bg: rgba(255, 255, 255, 0.04);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Subtle custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+  }
+}
+
+@layer components {
+  /* Glass sidebar */
+  .sidebar-glass {
+    background: var(--sidebar-glass);
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    border-right: 1px solid var(--sidebar-border);
+  }
+
+  /* Nav item base */
+  .nav-item {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-200 ease-out;
+    will-change: background-color, color, font-weight;
+  }
+
+  .nav-item:not(.nav-item-active):hover {
+    background: var(--nav-hover-bg);
+    @apply text-foreground;
+  }
+
+  .nav-item-active {
+    background: var(--nav-active-bg);
+    @apply text-accent-foreground font-semibold;
+    box-shadow: inset 0 0 0 1px var(--sidebar-border);
+    position: relative;
+  }
+
+  /* Фирменная риска слева у активного пункта — вместо разноцветных иконок. */
+  .nav-item-active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    translate: 0 -50%;
+    height: 1rem;
+    width: 2px;
+    border-radius: 99px;
+    background: hsl(var(--brand));
+  }
+
+  /* Подсветка под курсором. Координаты пишет SpotlightCard в --spot-x/--spot-y. */
+  .spotlight {
+    position: relative;
+    overflow: hidden;
+  }
+  .spotlight::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease-out;
+    background: radial-gradient(
+      240px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+      hsl(var(--brand) / 0.12),
+      transparent 70%
+    );
+  }
+  .spotlight:hover::after,
+  .spotlight:focus-visible::after {
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spotlight::after {
+      display: none;
+    }
+  }
+
+  /* Card hover lift */
+  .card-hover {
+    @apply transition-all duration-200;
+  }
+  .card-hover:hover {
+    @apply shadow-md -translate-y-px;
+  }
+
+  /* Button press */
+  .btn-press {
+    @apply transition-all duration-100;
+  }
+  .btn-press:active:not(:disabled) {
+    @apply scale-[0.97];
+  }
+}

@@ -1,0 +1,96 @@
+services:
+  server:
+    build:
+      context: .
+      args:
+        # Open-core (free) образ: FileVault-escrow — enterprise-фича, здесь не собирается
+        # (ESCROW_RECIPIENT_FPR/escrow-ldflags убраны при carve-out). Enterprise-образ
+        # собирается отдельно (-tags enterprise).
+        VERSION: ${VERSION:-dev}
+    restart: unless-stopped
+    # Внешние форвардеры для встроенного Docker-DNS. Раньше стоял 127.0.0.11 —
+    # это зацикливало резолвер на самого себя (ExtServers=[127.0.0.11]) → SERVFAIL
+    # на всех внешних доменах (в т.ч. SMTP). Публичные DNS чинят исходящий резолв;
+    # service discovery (postgres/redis) продолжает работать через 127.0.0.11.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "50051:50051"
+      # REST API мимо nginx — только localhost: агентские эндпоинты (enroll,
+      # манифест self-update, /ca.crt, загрузки) проксирует nginx на 443.
+      # Если у вас агенты, заэнролленные напрямую на :8081 (enroll-url с портом),
+      # верните "8081:8081" либо перерегистрируйте их через 443.
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./releases:/app/releases
+    env_file: .env.prod
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - server
+
+  # Идемпотентный накат миграций ДО старта server (fail-closed): server ждёт
+  # service_completed_successfully. Единый путь для первой установки И апгрейда —
+  # заменяет initdb.d, который срабатывал только на пустой БД (на апгрейде новые
+  # .sql не накатывались). На СУЩЕСТВУЮЩИХ инсталляциях один раз прогнать
+  # scripts/migrate-backfill.sh (см. docs/self-hosted-deploy.md).
+  migrate:
+    image: postgres:16-alpine
+    env_file: .env.prod
+    volumes:
+      - ./migrations:/migrations:ro
+      - ./scripts/migrate.sh:/migrate.sh:ro
+    entrypoint: ["sh", "/migrate.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      POSTGRES_DB: mdm
+      POSTGRES_USER: mdm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,460 @@
+syntax = "proto3";
+
+package mdm;
+
+option go_package = "github.com/Floodww/RoutineOps/proto";
+
+// =============================================================================
+// АРХИТЕКТУРНЫЕ РЕШЕНИЯ (зафиксированы)
+// =============================================================================
+//
+// [ADR-1] Идентификация агента — только по mTLS-сертификату.
+//   device_id ОТСУТСТВУЕТ в сообщениях agent→server. Сервер определяет
+//   device_id из отпечатка сертификата TLS-соединения. Это единственный
+//   источник истины. Доверять полю из тела сообщения нельзя — скомпрометированный
+//   агент мог бы подставить чужой device_id.
+//
+// [ADR-4] Правила версионирования контракта.
+//   Агент поддерживает самообновление — в проде одновременно могут работать
+//   разные версии агента. Обязательные правила при изменении .proto:
+//     - Никогда не менять номер существующего поля;
+//     - Никогда не удалять поле — только пометить deprecated, потом reserved;
+//     - Новые поля добавлять только в конец;
+//     - Никогда не переиспользовать освободившиеся номера (для этого — reserved).
+//
+// [ADR-5] Граница heartbeat vs инвентаризация.
+//   Connect-стрим: ТОЛЬКО факт "я живой" + текущий IP. Часто, дёшево.
+//   ReportInventory: полные данные (железо, ПО, процессы, пользователи).
+//   Редко, по таймеру. Никогда не смешивать эти потоки.
+//
+// =============================================================================
+
+// ====== Heartbeat ======
+// Агент → Сервер. device_id не передаётся — сервер берёт его из mTLS-сертификата.
+
+message HeartbeatRequest {
+  reserved 1;           // было device_id — удалено по ADR-1
+  reserved "device_id";
+  string ip_address = 2;
+  int64 timestamp = 3;
+}
+
+// ====== Инвентаризация устройства ======
+// Агент → Сервер. Отдельный вызов, редкий. См. ADR-5.
+
+message DeviceInfo {
+  reserved 1;           // было device_id — удалено по ADR-1
+  reserved "device_id";
+  string hostname = 2;
+  string os = 3;
+  string os_version = 4;
+  string cpu = 5;
+  int64 ram = 6;
+  string disk = 7;
+  string ip_address = 8;
+  string mac_address = 9;
+  string serial_number = 10;
+  string agent_version = 11; // версия агентского бинаря (ldflags main.version) — для видимости раскатки
+}
+
+message SoftwareItem {
+  string software_name = 1;
+  string version = 2;
+}
+
+message InventoryReport {
+  reserved 1;           // было device_id — удалено по ADR-1
+  reserved "device_id";
+  DeviceInfo device_info = 2;
+  repeated SoftwareItem software = 3;
+}
+
+message InventoryAck {
+  bool received = 1;
+}
+
+// ====== Задачи (Command Listener) ======
+
+enum TaskPriority {
+  TASK_PRIORITY_UNSPECIFIED = 0;
+  TASK_PRIORITY_LOW = 1;
+  TASK_PRIORITY_MEDIUM = 2;
+  TASK_PRIORITY_HIGH = 3;
+}
+
+// Сервер → Агент.
+message Task {
+  string task_id = 1;
+  reserved 2;           // было device_id — удалено по ADR-1
+  reserved "device_id";
+  string script_content = 3;
+  string platform = 4;  // macOS / Windows
+  TaskPriority priority = 5;
+  LockCommand lock = 6; // если задано — это команда блокировки устройства, а не скрипт
+}
+
+// LockCommand — блокировка/разблокировка машины сотрудника (нарушение ИБ/увольнение:
+// запереть ноут, пока не сдаст). Едет в Task поверх Connect-стрима: при заданном
+// Task.lock агент обрабатывает блокировку вместо запуска скрипта (переиспользуя
+// доставку/ack/идемпотентность задач). Разблокировка ОФФЛАЙН: сервер шлёт
+// bcrypt-ХЕШ пароля (не плейнтекст), агент сверяет введённый пароль локально;
+// плейнтекст показывается только в админке.
+message LockCommand {
+  string request_id    = 1; // id заявки (идемпотентность/отчёт)
+  bool   unlock        = 2; // true → разблокировать; false → заблокировать
+  string password_hash = 3; // bcrypt-хеш пароля разблокировки (только при блокировке)
+  string reason        = 4; // текст для сотрудника на экране замка
+  // FileVault-лок (enterprise). FAIL-SAFE: 0/unknown => OVERLAY (легаси/дефолт);
+  // деструктив требует ЯВНОГО LOCK_MODE_FILEVAULT=2.
+  LockMode        lock_mode              = 5; // 0/UNSPECIFIED => OVERLAY
+  repeated string filevault_target_users = 6; // RecordName; пусто => целевых определяет агент
+  // поле 7 свободно
+}
+
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  TASK_STATUS_SUCCESS = 1;
+  TASK_STATUS_ERROR = 2;
+}
+
+// Агент → Сервер.
+message TaskResult {
+  string task_id = 1;
+  reserved 2;           // было device_id — удалено по ADR-1
+  reserved "device_id";
+  TaskStatus status = 3;
+  string error_log = 4; // заполняется только если status = ERROR
+  string output = 5;    // stdout скрипта
+}
+
+message TaskResultAck {
+  bool received = 1;
+}
+
+// Агент → Сервер. Подтверждение доставки задачи — ОТДЕЛЬНО от результата
+// выполнения. Позволяет серверу отличить "не доставлено" от "доставлено,
+// но не выполнено". Агент ОБЯЗАН обрабатывать повторные доставки идемпотентно
+// (Asynq даёт at-least-once; особенно критично для операций выдачи прав).
+message TaskReceivedAck {
+  string task_id = 1;
+  reserved 2;           // было device_id — удалено по ADR-1
+  reserved "device_id";
+  int64 received_at = 3;
+}
+
+message TaskReceivedAckResponse {
+  bool acknowledged = 1;
+}
+
+// ====== Алерты ИБ (Security Monitor) ======
+
+enum AlertType {
+  ALERT_TYPE_UNSPECIFIED = 0;
+  ALERT_TYPE_FORBIDDEN_SOFTWARE = 1;
+  ALERT_TYPE_UNAUTHORIZED_INSTALL = 2;
+  ALERT_TYPE_UNAUTHORIZED_SETTINGS_CHANGE = 3;
+}
+
+// Агент → Сервер.
+message SecurityEvent {
+  reserved 1;           // было device_id — удалено по ADR-1
+  reserved "device_id";
+  AlertType alert_type = 2;
+  string details = 3;
+  int64 occurred_at = 4;
+  string admin_access_request_id = 5; // опционально, если событие во время активной админки
+}
+
+message SecurityEventAck {
+  bool received = 1;
+}
+
+// ====== Политики ПО (Software Policy) ======
+// Общий контракт (ADR-4).
+//
+// Агент периодически запрашивает действующие правила ПО (разрешено/запрещено),
+// кэширует их локально в файл и применяет в Security Monitor даже без связи с
+// сервером (CONTEXT §7). device_id не передаётся — сервер определяет устройство
+// по mTLS-сертификату (ADR-1) и возвращает правила для него: глобальные
+// (software_policy_rules.device_id IS NULL) + переопределения этого устройства.
+
+enum PolicyRuleType {
+  POLICY_RULE_TYPE_UNSPECIFIED = 0;
+  POLICY_RULE_TYPE_ALLOWED = 1;
+  POLICY_RULE_TYPE_FORBIDDEN = 2;
+}
+
+message SoftwarePolicyRule {
+  string software_name = 1;
+  PolicyRuleType rule_type = 2;
+}
+
+// Агент → Сервер.
+message FetchPolicyRequest {
+  // Версия политики у агента — unix-время max(updated_at) набора правил. Если
+  // равно серверной версии, сервер отвечает unchanged=true без списка. 0 = нет
+  // кэша (вернуть полный набор).
+  int64 known_version = 1;
+}
+
+// Сервер → Агент.
+message FetchPolicyResponse {
+  repeated SoftwarePolicyRule rules = 1;
+  int64 version = 2;   // unix-время max(updated_at) текущего набора (для кэша)
+  bool unchanged = 3;  // true => known_version актуальна, rules не возвращены
+}
+
+// ====== Временные права администратора (Этап 4) ======
+// Общий контракт (ADR-4).
+//
+// Флоу: сотрудник на устройстве запрашивает временные админ-права
+// (RequestAdminAccess) → IT-админ одобряет/отклоняет в веб-интерфейсе (это REST
+// web→server: POST /api/v1/admin-access-requests/{id}/respond, НЕ в этом proto) →
+// агент узнаёт решение и срок (FetchAdminStatus, pull, как FetchPolicy) → агент
+// применяет права и сообщает факт применения/сброса (ReportAdminAccess; напр.
+// сброс при логауте → revoked_at). Длительность задаёт сервер по политике
+// (system_settings/роль), возвращает готовый expires_at. device_id во всех
+// сообщениях НЕ передаётся — сервер берёт из mTLS-серта (ADR-1). Маппится на
+// таблицу admin_access_requests.
+
+enum AdminAccessStatus {
+  ADMIN_ACCESS_STATUS_UNSPECIFIED = 0;
+  ADMIN_ACCESS_STATUS_PENDING     = 1; // заявка создана, ждёт решения IT-админа
+  ADMIN_ACCESS_STATUS_APPROVED    = 2; // одобрено, права действуют до expires_at
+  ADMIN_ACCESS_STATUS_REJECTED    = 3;
+  ADMIN_ACCESS_STATUS_EXPIRED     = 4; // истёк срок (pending_expires_at или expires_at)
+  ADMIN_ACCESS_STATUS_REVOKED     = 5; // снято (логаут пользователя или вручную)
+}
+
+// Агент → Сервер: сотрудник на устройстве запросил временные права.
+message RequestAdminAccessRequest {
+  string reason       = 1; // обоснование от пользователя
+  int64  requested_at = 2;
+}
+message RequestAdminAccessResponse {
+  string request_id = 1;        // admin_access_requests.id
+  AdminAccessStatus status = 2; // обычно PENDING
+}
+
+// Агент → Сервер: узнать текущий статус прав для устройства (pull).
+// Возвращает ПОСЛЕДНЮЮ активную заявку устройства (PENDING или APPROVED). Если
+// активной заявки нет — request_id="" и status=ADMIN_ACCESS_STATUS_UNSPECIFIED.
+// Несколько одновременно активных заявок недопустимы — это ответственность
+// сервера; агент всегда видит ровно одну.
+message FetchAdminStatusRequest {}
+message FetchAdminStatusResponse {
+  string request_id = 1;        // "" если активной заявки нет
+  AdminAccessStatus status = 2; // UNSPECIFIED если активной заявки нет
+  int64 granted_at = 3;         // когда права выданы (если APPROVED)
+  int64 expires_at = 4;         // до когда действуют
+}
+
+// Агент → Сервер: агент сообщает фактическое применение/снятие прав
+// (напр. сброс при логауте — сервер проставит revoked_at).
+message ReportAdminAccessRequest {
+  string request_id = 1;
+  AdminAccessStatus status = 2; // APPROVED (применено) / REVOKED (снято)
+  int64  occurred_at = 3;
+  string details = 4; // напр. "revoked on user logout"
+}
+message ReportAdminAccessResponse {
+  bool received = 1;
+}
+
+// ====== Скрипт-политики (Этап 5) — общий контракт ======
+// Аналог FetchPolicy, но для исполняемых скрипт-политик с триггерами.
+//
+// Предлагаемый флоу: IT-админ в вебе создаёт скрипты и привязывает их к
+// устройствам/группам (REST: /api/v1/scripts, /api/v1/script-policies,
+// /api/v1/device-groups — НЕ в этом proto). Агент периодически тянет СВОЙ
+// эффективный набор скрипт-политик (FetchScriptPolicies, pull, как FetchPolicy),
+// кэширует и исполняет по триггеру (cron / событие / on_connect), затем шлёт
+// результат (ReportScriptResult, через устойчивую очередь — терять нельзя).
+// device_id не передаётся — сервер резолвит устройство по mTLS-серту (ADR-1) и
+// САМ вычисляет эффективные политики: прямые привязки устройства + привязки его
+// групп. Агент в членство групп не лезет.
+//
+// РЕШЕНИЯ по обсуждавшимся вопросам:
+//   1) script_content — inline (RMM-скрипты небольшие; лимит gRPC 4МБ с запасом;
+//      при изменении не перетягивается лишний раз благодаря version/unchanged).
+//   2) Эффективный набор резолвит СЕРВЕР по mTLS-серту (ADR-1): прямые привязки
+//      устройства + привязки его групп. Агент группы/членство не видит.
+//   3) Отдельный ReportScriptResult (у скрипт-политик нет task_id; есть policy_id
+//      + run_id, отдельные stdout/stderr и метки времени запуска).
+//   4) event_trigger — enum ScriptEventType (фикс-набор), расширяется аддитивно.
+//   5) on_connect — запуск на установку стрима, дедуп по policy_id+version
+//      (персистентно у агента), реконнекты не перезапускают скрипт.
+
+enum ScriptTrigger {
+  SCRIPT_TRIGGER_UNSPECIFIED = 0;
+  SCRIPT_TRIGGER_SCHEDULE    = 1; // по cron-выражению (поле cron)
+  SCRIPT_TRIGGER_EVENT       = 2; // по событию ОС (поле event_trigger)
+  SCRIPT_TRIGGER_ON_CONNECT  = 3; // при установке Connect-стрима
+}
+
+// События ОС для trigger=EVENT. Расширять только в конец (ADR-4).
+enum ScriptEventType {
+  SCRIPT_EVENT_TYPE_UNSPECIFIED    = 0;
+  SCRIPT_EVENT_TYPE_LOGIN          = 1;
+  SCRIPT_EVENT_TYPE_LOGOUT         = 2;
+  SCRIPT_EVENT_TYPE_NETWORK_CHANGE = 3;
+}
+
+message ScriptPolicy {
+  string policy_id              = 1; // script_policies.id
+  string name                   = 2;
+  string script_content         = 3; // inline (решение 1)
+  string interpreter            = 4; // "shell" | "powershell" | "python"
+  ScriptTrigger trigger         = 5;
+  string cron                   = 6; // при trigger=SCHEDULE, напр. "0 */6 * * *"
+  ScriptEventType event_trigger = 7; // при trigger=EVENT (решение 4)
+  int64  timeout_seconds        = 8; // потолок на один запуск
+  int64  updated_at             = 9; // unix; max по набору = version
+}
+
+// Агент → Сервер: тянем эффективный набор скрипт-политик устройства.
+message FetchScriptPoliciesRequest {
+  // Версия у агента — unix max(updated_at) набора. Равна серверной → unchanged=true
+  // без списка. 0 = нет кэша (вернуть полный набор).
+  int64 known_version = 1;
+}
+message FetchScriptPoliciesResponse {
+  repeated ScriptPolicy policies = 1;
+  int64 version   = 2; // unix max(updated_at) текущего набора (для кэша)
+  bool  unchanged = 3; // true => known_version актуальна, policies не возвращены
+}
+
+// Агент → Сервер: результат одного запуска скрипт-политики (через outbox).
+message ScriptResult {
+  string policy_id   = 1;
+  string run_id      = 2; // идемпотентность запуска (uuid, генерит агент)
+  int32  exit_code   = 3;
+  string stdout      = 4;
+  string stderr      = 5;
+  int64  started_at  = 6;
+  int64  finished_at = 7;
+  ScriptTrigger trigger = 8; // чем был инициирован запуск
+}
+message ScriptResultAck {
+  bool received = 1;
+}
+
+// ====== Сервис ======
+
+// ── FileVault recovery-key escrow (enterprise) ──
+// Эскроу recovery-ключа на энроллменте. Сервер хранит ТОЛЬКО непрозрачный
+// шифртекст (sealed_key) и расшифровать его НЕ может; расшифровка — офлайн, вне
+// сервера. Схема запечатывания и хранения приватного ключа — enterprise-деталь.
+enum RecoveryKeyType {
+  RECOVERY_KEY_TYPE_UNSPECIFIED       = 0;
+  RECOVERY_KEY_TYPE_FILEVAULT_PRK     = 1;
+  RECOVERY_KEY_TYPE_SECONDARY_CREDENTIAL = 2;
+}
+// device_id НЕ передаём (ADR-1: идентичность из mTLS-cert). sealed_key — bytes, НЕ
+// string: никакого base64/армора на проводе, чтобы случайно не залогировать.
+message EscrowRecoveryKeyRequest {
+  string          request_id       = 1;
+  RecoveryKeyType key_type         = 2;
+  // Непрозрачный запечатанный ENVELOPE, НЕ сырой секрет. Формат plaintext и схема
+  // запечатывания — enterprise-деталь (сервер расшифровать не может); envelope
+  // самоверифицируется офлайн при reveal. bytes, НЕ string: никакого base64/армора
+  // на проводе, чтобы случайно не залогировать.
+  bytes           sealed_key       = 3;
+  // fpr использованного recipient — сервер сверяет с pinned. Формула (канон):
+  // fpr = hex(sha256(canonical recipient.String()))[:32] — реализация
+  // internal/server/crypto.Fingerprint; агент ИМПОРТИТ её, не реализует сам.
+  // recipient для Encrypt и fpr обязаны браться из ОДНОГО распарсенного объекта.
+  string          escrow_pubkey_id = 4;
+  int64           created_at       = 5;
+}
+message EscrowRecoveryKeyResponse {
+  bool   stored    = 1; // true ТОЛЬКО после устойчивого DB COMMIT
+  string escrow_id = 2;
+}
+
+service AgentService {
+  // Постоянный стрим: heartbeat → сервер, задачи ← сервер. (ADR-5)
+  rpc Connect(stream HeartbeatRequest) returns (stream Task);
+
+  // Подтверждение доставки задачи агенту (до выполнения).
+  rpc AckTaskReceived(TaskReceivedAck) returns (TaskReceivedAckResponse);
+
+  rpc ReportInventory(InventoryReport) returns (InventoryAck);
+  rpc ReportTaskResult(TaskResult) returns (TaskResultAck);
+  rpc ReportSecurityEvent(SecurityEvent) returns (SecurityEventAck);
+
+  // Синхронизация политик ПО (запрещённое/разрешённое) для Security Monitor.
+  // Pull: агент тянет при старте; версия — unix max(updated_at) (см. FetchPolicyResponse).
+  rpc FetchPolicy(FetchPolicyRequest) returns (FetchPolicyResponse);
+
+  // Временные права администратора (Этап 4). Одобрение IT-админом — через REST.
+  rpc RequestAdminAccess(RequestAdminAccessRequest) returns (RequestAdminAccessResponse);
+  rpc FetchAdminStatus(FetchAdminStatusRequest) returns (FetchAdminStatusResponse);
+  rpc ReportAdminAccess(ReportAdminAccessRequest) returns (ReportAdminAccessResponse);
+
+  // Скрипт-политики (Этап 5). Pull эффективного набора + отчёт о выполнении
+  // (как FetchPolicy + ReportTaskResult).
+  rpc FetchScriptPolicies(FetchScriptPoliciesRequest) returns (FetchScriptPoliciesResponse);
+  rpc ReportScriptResult(ScriptResult) returns (ScriptResultAck);
+
+  // Блокировка устройства: агент подтверждает применение/снятие (аудит + UI).
+  rpc ReportLockStatus(ReportLockStatusRequest) returns (ReportLockStatusResponse);
+
+  // Реконсиляция блокировки (pull): переживает потерю push-команды и ребут —
+  // Task.lock едет РАЗ по Connect-стриму, сверки нет, поэтому после рестарта
+  // агента desired-состояние сервера может разойтись с локальным lock.json.
+  // Агент периодически сверяет их (как FetchAdminStatus).
+  rpc FetchLockStatus(FetchLockStatusRequest) returns (FetchLockStatusResponse);
+
+  // Эскроу recovery-ключа FileVault (enterprise). СИНХРОННЫЙ: stored=true ТОЛЬКО
+  // после устойчивого сохранения. Реальная ошибка (Unavailable/FailedPrecondition) —
+  // агент ретраит и НЕ запускает деструктив, если escrow не подтверждён. НЕ через outbox.
+  rpc EscrowRecoveryKey(EscrowRecoveryKeyRequest) returns (EscrowRecoveryKeyResponse);
+}
+
+// Агент → Сервер: подтверждение применения/снятия блокировки (для аудита и UI).
+message ReportLockStatusRequest {
+  string    request_id  = 1;
+  LockState state       = 2;
+  int64     occurred_at = 3; // unix
+  string    details     = 4;
+}
+enum LockState {
+  LOCK_STATE_UNSPECIFIED       = 0;
+  LOCK_STATE_LOCKED            = 1; // overlay: окно; filevault: ПОДТВЕРЖДЁН после ребута
+  LOCK_STATE_UNLOCKED          = 2; // снят (сервером или верным паролем)
+  LOCK_STATE_FILEVAULT_REVOKED = 3; // filevault: токен снят + PRK заэскроен; РЕБУТ НУЖЕН; ещё НЕ эффективен
+  LOCK_STATE_FILEVAULT_REVOKE_FAILED = 4; // filevault: revoke НЕ завершён (partial/ABORT/misbuild) — деструктив мог частично примениться; требует ручного разбора IT; desired НЕ трогать
+}
+
+// LockMode — режим блокировки. FAIL-SAFE: 0 НИКОГДА не FILEVAULT.
+// Агент трактует 0/unknown как OVERLAY; деструктив (revoke Secure Token) требует
+// ЯВНОГО значения 2. LockState (actual) не трогаем — это ОТДЕЛЬНАЯ ось (режим vs состояние).
+enum LockMode {
+  LOCK_MODE_UNSPECIFIED = 0; // == OVERLAY (легаси/безопасный дефолт)
+  LOCK_MODE_OVERLAY     = 1; // текущее полноэкранное окно
+  LOCK_MODE_FILEVAULT   = 2; // ДЕСТРУКТИВ: revoke Secure Token → после ребута том закрыт
+}
+message ReportLockStatusResponse {
+  bool received = 1;
+}
+
+// Агент → Сервер: узнать ЖЕЛАЕМОЕ состояние блокировки устройства (pull,
+// реконсиляция). password_hash — bcrypt-хеш пароля разблокировки; уникален на
+// каждую блокировку (сервер генерирует новый случайный пароль при каждом lock),
+// поэтому агент использует его и как идентичность конкретного лок-инстанса
+// (сверка "это тот же лок, что уже применён/только что снят локально"), и как
+// request_id для Manager.Lock — отдельного поля не заводим.
+message FetchLockStatusRequest {}
+message FetchLockStatusResponse {
+  bool   locked        = 1;
+  string password_hash = 2; // bcrypt; непусто только при locked=true
+  string reason        = 3; // текст для сотрудника на экране замка; только при locked=true
+  // reconcile-путь FileVault: без этих полей потерянный push тихо
+  // деградировал бы в оверлей. lock_mode=0 => OVERLAY (fail-safe).
+  LockMode        lock_mode              = 4;
+  // ADVISORY: серверного хранилища списка сейчас нет — сервер всегда шлёт ПУСТО.
+  // Пусто => целевых пользователей определяет агент (семантика = LockCommand).
+  // Непустой список — опциональный таргетинг будущего (потребует миграцию + wiring).
+  repeated string filevault_target_users = 5;
+}
