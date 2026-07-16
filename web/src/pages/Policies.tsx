@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { Trash2, ChevronLeft } from "lucide-react"
 import api, { PolicyRule, SoftwarePolicyCompliance } from "@/lib/api"
 import { Button } from "@/components/ui/button"
@@ -37,6 +38,7 @@ function PassFail({ c }: { c?: SoftwarePolicyCompliance }) {
 }
 
 export default function Policies() {
+  const navigate = useNavigate()
   const [rules, setRules] = useState<PolicyRule[]>([])
   const [compliance, setCompliance] = useState<Record<string, SoftwarePolicyCompliance>>({})
   const [query, setQuery] = useState("")
@@ -122,14 +124,19 @@ export default function Policies() {
                 <span className="text-xs text-muted-foreground select-none mt-px">1</span>
                 <input
                   id="policy-condition"
-                  aria-label="Условие политики"
+                  aria-label="Имя программы"
                   className="flex-1 bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
-                  placeholder="software_name = &quot;chrome&quot;"
+                  placeholder="chrome"
                   value={form.software_name}
                   onChange={(e) => setForm({ ...form, software_name: e.target.value })}
                 />
               </div>
             </div>
+            {/* Раньше placeholder показывал синтаксис `software_name = "chrome"` — его
+                вводили буквально, правило молча не матчилось ни с чем. */}
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Подстрока имени программы без учёта регистра: «chrome» поймает и Google Chrome, и Chromium.
+            </p>
           </div>
 
           {/* Rule type toggle */}
@@ -258,7 +265,11 @@ export default function Policies() {
                   )
                 }
                 return filtered.map((r) => (
-                <TableRow key={r.id}>
+                <TableRow
+                  key={r.id}
+                  onClick={() => navigate(`/policies/${r.id}`)}
+                  className="cursor-pointer"
+                >
                   <TableCell className="font-medium font-mono text-sm">
                     {r.software_name}
                     {r.platforms && r.platforms.length > 0 && r.platforms.length < 3 && (
@@ -277,7 +288,8 @@ export default function Policies() {
                     {compliance[r.id] ? compliance[r.id].in_scope : "…"}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs font-mono">
-                    {r.device_id ? r.device_id.slice(0, 8) : "Глобальное"}
+                    {/* group_id раньше игнорировался — групповое правило выглядело как глобальное */}
+                    {r.device_id ? r.device_id.slice(0, 8) : r.group_id ? "Группа" : "Глобальное"}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {formatDistanceToNow(r.updated_at)}
@@ -285,7 +297,7 @@ export default function Policies() {
                   <TableCell>
                     <button
                       type="button"
-                      onClick={() => setConfirmDelete(r)}
+                      onClick={(e) => { e.stopPropagation(); setConfirmDelete(r) }}
                       className="text-muted-foreground hover:text-destructive transition-colors"
                     >
                       <Trash2 className="h-4 w-4" />

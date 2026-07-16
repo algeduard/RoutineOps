@@ -181,6 +181,7 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 		r.Get("/admin-access-requests", h.listAdminAccessRequests)
 		r.Get("/policies", h.listPolicies)
 		r.Get("/policies/compliance", h.listPolicyCompliance)
+		r.Get("/policies/{id}/compliance", h.listPolicyDeviceCompliance)
 		r.Get("/scripts", h.listScripts)
 		r.Get("/scripts/{id}", h.getScript)
 		r.Get("/script-policies", h.listScriptPolicies)
@@ -259,6 +260,20 @@ func (h *Handler) listPolicyCompliance(w http.ResponseWriter, r *http.Request) {
 	}
 	if rows == nil {
 		rows = []storage.SoftwarePolicyCompliance{}
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+// listPolicyDeviceCompliance — GET /policies/{id}/compliance: разрез одного софт-правила
+// по устройствам области действия (кто pass, кто fail и что именно нашлось в инвентаре).
+func (h *Handler) listPolicyDeviceCompliance(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.db.ListSoftwarePolicyDeviceCompliance(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if rows == nil {
+		rows = []storage.SoftwarePolicyDeviceCompliance{}
 	}
 	writeJSON(w, http.StatusOK, rows)
 }

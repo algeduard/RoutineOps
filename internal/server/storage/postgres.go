@@ -1067,6 +1067,76 @@ func (db *DB) ListSoftwarePolicyCompliance(ctx context.Context) ([]SoftwarePolic
 	return out, rows.Err()
 }
 
+// SoftwarePolicyDeviceCompliance — разрез соответствия ОДНОГО софт-правила по
+// устройствам: кто в области действия и что именно совпало в инвентаре.
+// MatchedSoftware/MatchedVersion — первое совпадение по алфавиту ("" когда
+// совпадений нет): для ответа «почему fail» достаточно одного примера.
+type SoftwarePolicyDeviceCompliance struct {
+	DeviceID        string `json:"device_id"`
+	Hostname        string `json:"hostname"`
+	OS              string `json:"os"`
+	Status          string `json:"status"`
+	Installed       bool   `json:"installed"`
+	MatchedSoftware string `json:"matched_software"`
+	MatchedVersion  string `json:"matched_version"`
+}
+
+// ListSoftwarePolicyDeviceCompliance — те же область действия и матчер, что у
+// ListSoftwarePolicyCompliance (глобальное ∪ device-оверрайд ∪ группа, платформенный
+// фильтр с fail-safe, регистронезависимая подстрока), но без агрегации: по строке на
+// каждое устройство в области правила. Нарушители первыми, дальше по hostname.
+func (db *DB) ListSoftwarePolicyDeviceCompliance(ctx context.Context, ruleID string) ([]SoftwarePolicyDeviceCompliance, error) {
+	rows, err := db.pool.Query(ctx, `
+		SELECT d.id, d.hostname, COALESCE(d.os, ''), d.status,
+		       m.software_name IS NOT NULL AS installed,
+		       COALESCE(m.software_name, ''), COALESCE(m.version, '')
+		FROM software_policy_rules r
+		JOIN devices d
+		  ON d.status <> 'pending'
+		 AND (
+		       (r.device_id IS NULL AND r.group_id IS NULL)   -- глобальное
+		    OR d.id = r.device_id                             -- оверрайд устройства
+		    OR (r.group_id IS NOT NULL AND EXISTS (           -- группа устройства
+		          SELECT 1 FROM device_group_members gm
+		          WHERE gm.device_id = d.id AND gm.group_id = r.group_id))
+		     )
+		 AND (
+		       r.platforms IS NULL OR cardinality(r.platforms) = 0
+		    OR COALESCE(d.os, '') = '' OR lower(d.os) = 'unknown'
+		    OR (CASE
+		          WHEN lower(d.os) LIKE '%win%' THEN 'Windows'
+		          WHEN lower(d.os) LIKE '%mac%' OR lower(d.os) LIKE '%darwin%' THEN 'macOS'
+		          ELSE 'Linux'
+		        END) = ANY (r.platforms)
+		     )
+		LEFT JOIN LATERAL (
+		    SELECT s.software_name, s.version
+		    FROM device_software s
+		    WHERE s.device_id = d.id
+		      AND r.software_name <> ''
+		      AND strpos(lower(s.software_name), lower(r.software_name)) > 0
+		    ORDER BY lower(s.software_name)
+		    LIMIT 1
+		) m ON true
+		WHERE r.id = $1
+		ORDER BY installed DESC, lower(d.hostname)
+	`, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SoftwarePolicyDeviceCompliance
+	for rows.Next() {
+		var c SoftwarePolicyDeviceCompliance
+		if err := rows.Scan(&c.DeviceID, &c.Hostname, &c.OS, &c.Status,
+			&c.Installed, &c.MatchedSoftware, &c.MatchedVersion); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ScriptPolicyCompliance — Pass/Fail скрипт-политики по ПОСЛЕДНЕМУ прогону на каждом
 // устройстве. Unknown = назначено, но результата ещё нет (или устройство не отчиталось).
 type ScriptPolicyCompliance struct {

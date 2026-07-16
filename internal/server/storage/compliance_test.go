@@ -309,6 +309,96 @@ func TestListSoftwarePolicyCompliance(t *testing.T) {
 	})
 }
 
+func TestListSoftwarePolicyDeviceCompliance(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+
+	// Построчный разрез должен сходиться с агрегатом: нарушитель — с именем и версией
+	// совпавшего ПО, чистое устройство — installed=false с пустым совпадением.
+	// Нарушители сортируются первыми.
+	t.Run("нарушитель с совпавшим ПО первым, чистый следом", func(t *testing.T) {
+		suffix := uniq(t)
+		dirty := activeDevice(t, db, "ddirty-"+suffix, "Windows 11", "Google Chrome 120")
+		clean := activeDevice(t, db, "aclean-"+suffix, "Windows 11") // 'a…' — по алфавиту раньше dirty
+		group, err := db.CreateDeviceGroup(ctx, "grp-detail-"+suffix, "")
+		if err != nil {
+			t.Fatalf("CreateDeviceGroup: %v", err)
+		}
+		for _, d := range []string{dirty, clean} {
+			if err := db.AddDeviceToGroup(ctx, d, group.ID); err != nil {
+				t.Fatalf("AddDeviceToGroup: %v", err)
+			}
+		}
+		rule, err := db.AssignSoftwarePolicyToGroup(ctx, group.ID, "chrome", "forbidden")
+		if err != nil {
+			t.Fatalf("AssignSoftwarePolicyToGroup: %v", err)
+		}
+
+		rows, err := db.ListSoftwarePolicyDeviceCompliance(ctx, rule.ID)
+		if err != nil {
+			t.Fatalf("ListSoftwarePolicyDeviceCompliance: %v", err)
+		}
+		if len(rows) != 2 {
+			t.Fatalf("получено %d строк, want 2: %+v", len(rows), rows)
+		}
+		// Нарушитель первым — несмотря на то, что чистый раньше по алфавиту.
+		if rows[0].DeviceID != dirty || !rows[0].Installed {
+			t.Errorf("rows[0] = %+v, ожидали нарушителя %s первым", rows[0], dirty)
+		}
+		if rows[0].MatchedSoftware != "Google Chrome 120" {
+			t.Errorf("matched_software = %q, want %q", rows[0].MatchedSoftware, "Google Chrome 120")
+		}
+		if rows[1].DeviceID != clean || rows[1].Installed || rows[1].MatchedSoftware != "" {
+			t.Errorf("rows[1] = %+v, ожидали чистое устройство %s без совпадения", rows[1], clean)
+		}
+	})
+
+	// Скоуп и платформенный фильтр — тот же SQL, что в агрегате; здесь достаточно
+	// смок-проверки, что device-оверрайд не тащит чужие устройства, а платформа режет.
+	t.Run("device-скоуп и платформенный фильтр", func(t *testing.T) {
+		suffix := uniq(t)
+		app := "detapp-" + suffix
+		target := activeDevice(t, db, "dtgt-"+suffix, "macOS 14", app)
+		activeDevice(t, db, "dout-"+suffix, "macOS 14", app) // вне скоупа
+
+		rule, err := db.CreatePolicyRule(ctx, app, "forbidden", &target, []string{"macOS"})
+		if err != nil {
+			t.Fatalf("CreatePolicyRule: %v", err)
+		}
+		rows, err := db.ListSoftwarePolicyDeviceCompliance(ctx, rule.ID)
+		if err != nil {
+			t.Fatalf("ListSoftwarePolicyDeviceCompliance: %v", err)
+		}
+		if len(rows) != 1 || rows[0].DeviceID != target || !rows[0].Installed {
+			t.Fatalf("rows = %+v, want ровно один нарушитель %s", rows, target)
+		}
+
+		// Правило только для Windows — mac-устройство выпадает из области действия.
+		winRule, err := db.CreatePolicyRule(ctx, app, "forbidden", &target, []string{"Windows"})
+		if err != nil {
+			t.Fatalf("CreatePolicyRule (Windows): %v", err)
+		}
+		rows, err = db.ListSoftwarePolicyDeviceCompliance(ctx, winRule.ID)
+		if err != nil {
+			t.Fatalf("ListSoftwarePolicyDeviceCompliance (Windows): %v", err)
+		}
+		if len(rows) != 0 {
+			t.Fatalf("rows = %+v, want пусто (платформа не совпала)", rows)
+		}
+	})
+
+	// Несуществующее правило — пустой список, не ошибка: хендлер отдаст [].
+	t.Run("несуществующее правило — пусто", func(t *testing.T) {
+		rows, err := db.ListSoftwarePolicyDeviceCompliance(ctx, "00000000-0000-0000-0000-000000000000")
+		if err != nil {
+			t.Fatalf("ListSoftwarePolicyDeviceCompliance: %v", err)
+		}
+		if len(rows) != 0 {
+			t.Fatalf("rows = %+v, want пусто", rows)
+		}
+	})
+}
+
 // mustScriptPolicy создаёт скрипт + политику и возвращает id политики.
 func mustScriptPolicy(t *testing.T, db *storage.DB, suffix string) string {
 	t.Helper()

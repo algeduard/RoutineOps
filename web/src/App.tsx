@@ -13,6 +13,7 @@ import DeviceDetail from "@/pages/DeviceDetail"
 import Alerts from "@/pages/Alerts"
 import AdminAccess from "@/pages/AdminAccess"
 import Policies from "@/pages/Policies"
+import PolicyDetail from "@/pages/PolicyDetail"
 import Scripts from "@/pages/Scripts"
 import ScriptPolicies from "@/pages/ScriptPolicies"
 import Groups from "@/pages/Groups"
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="alerts" element={<Alerts />} />
           <Route path="admin-access" element={<AdminRoute><AdminAccess /></AdminRoute>} />
           <Route path="policies" element={<AdminRoute><Policies /></AdminRoute>} />
+          <Route path="policies/:id" element={<AdminRoute><PolicyDetail /></AdminRoute>} />
           <Route path="scripts" element={<AdminRoute><Scripts /></AdminRoute>} />
           <Route path="script-policies" element={<AdminRoute><ScriptPolicies /></AdminRoute>} />
           <Route path="groups" element={<AdminRoute><Groups /></AdminRoute>} />

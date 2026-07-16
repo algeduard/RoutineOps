@@ -148,6 +148,7 @@ export interface PolicyRule {
   software_name: string
   rule_type: "allowed" | "forbidden"
   device_id: string | null
+  group_id: string | null
   platforms: string[] | null
   updated_at: string
 }
@@ -228,6 +229,18 @@ export interface DeviceGroup {
   device_ids: string[]
   policy_ids: string[]
   software_rules: GroupSoftwareRule[]
+}
+
+// PolicyDeviceCompliance — разрез одного софт-правила по устройствам
+// (GET /policies/{id}/compliance): кто в области действия, у кого что совпало.
+export interface PolicyDeviceCompliance {
+  device_id: string
+  hostname: string
+  os: string
+  status: string
+  installed: boolean
+  matched_software: string
+  matched_version: string
 }
 
 // SoftwarePolicyCompliance — счётчики Pass/Fail софт-правила (GET /policies/compliance).
