@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState, type ElementType, type CSSProperties } from "react"
 import { useNavigate } from "react-router-dom"
-import { Monitor, FileCode2, Shield, Bell, ChevronRight, Activity } from "lucide-react"
+import { Monitor, FileCode2, Shield, Bell, ChevronRight, Activity, ShieldAlert, KeyRound, UserCog } from "lucide-react"
 import api, { Device, Script, PolicyRule } from "@/lib/api"
 import { formatDistanceToNow } from "@/lib/time"
 import { toast } from "@/lib/toast"
@@ -31,13 +31,99 @@ const ACTION_LABELS: Record<string, string> = {
   reject_admin_request:  "отклонил заявку на права",
   revoke_admin_request:  "отозвал права",
   create_device:         "добавил устройство",
+  delete_device:         "удалил устройство",
   reenroll_device:       "перерегистрировал устройство",
+  lock_device:           "заблокировал экран устройства",
+  unlock_device:         "разблокировал экран устройства",
   create_script:         "создал скрипт",
   update_script:         "изменил скрипт",
   delete_script:         "удалил скрипт",
   create_policy:         "создал политику",
   delete_policy:         "удалил политику",
   run_script:            "запустил скрипт",
+  run_script_on_group:   "запустил скрипт на группе",
+  create_script_policy:  "создал скрипт-политику",
+  delete_script_policy:  "удалил скрипт-политику",
+  enable_script_policy:  "включил скрипт-политику",
+  disable_script_policy: "выключил скрипт-политику",
+  acknowledge_alert:     "подтвердил алерт",
+  login:                 "вошёл в систему",
+  logout:                "вышел из системы",
+  login_failed:          "неудачная попытка входа",
+  change_password:       "сменил пароль",
+  password_reset_requested: "запросил сброс пароля",
+  password_reset:        "сбросил пароль",
+  invite_user:           "пригласил пользователя",
+  accept_invite:         "принял приглашение",
+  create_device_group:   "создал группу устройств",
+  update_device_group:   "изменил группу устройств",
+  delete_device_group:   "удалил группу устройств",
+  add_device_to_group:   "добавил устройство в группу",
+  remove_device_from_group: "убрал устройство из группы",
+  assign_policy_to_group:   "назначил группе политику",
+  unassign_policy_from_group: "снял с группы политику",
+  assign_software_policy_to_group:   "назначил группе политику ПО",
+  unassign_software_policy_from_group: "снял с группы политику ПО",
+}
+
+// Таксономия событий ленты: security должно цепляться взглядом сразу,
+// остальные категории различаются иконкой и сдержанным цветовым акцентом.
+type EventCategory = "security" | "auth" | "admin" | "device" | "content"
+
+const ACTION_CATEGORY: Record<string, EventCategory> = {
+  login_failed: "security", block_device: "security", lock_device: "security",
+  login: "auth", logout: "auth", change_password: "auth",
+  password_reset: "auth", password_reset_requested: "auth",
+  invite_user: "admin", accept_invite: "admin",
+  approve_admin_request: "admin", reject_admin_request: "admin", revoke_admin_request: "admin",
+  create_device: "device", delete_device: "device", reenroll_device: "device",
+  unblock_device: "device", unlock_device: "device",
+  // Запуск скрипта — исполнение кода на устройстве/парке, не правка контента.
+  run_script: "device", run_script_on_group: "device",
+  create_device_group: "device", update_device_group: "device", delete_device_group: "device",
+  add_device_to_group: "device", remove_device_from_group: "device",
+  // всё остальное (скрипты/политики/алерты) — content по умолчанию
+}
+
+const CATEGORY_STYLE: Record<EventCategory, { icon: ElementType; fg: string; bg: string }> = {
+  // red-700 в светлой теме: red-500 на белом даёт 3.57:1 — ниже AA для text-xs.
+  security: { icon: ShieldAlert, fg: "text-red-700 dark:text-red-400",         bg: "bg-red-500/10" },
+  auth:     { icon: KeyRound,    fg: "text-sky-600 dark:text-sky-400",         bg: "bg-sky-500/10" },
+  admin:    { icon: UserCog,     fg: "text-violet-600 dark:text-violet-400",   bg: "bg-violet-500/10" },
+  device:   { icon: Monitor,     fg: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" },
+  content:  { icon: FileCode2,   fg: "text-muted-foreground",                  bg: "bg-muted" },
+}
+
+// Count-up цифр карточек при первой загрузке. Уважает prefers-reduced-motion.
+// Анимирует от последнего показанного значения, не от нуля — чтобы при
+// будущем рефреше данных цифра не прыгала в 0.
+function useCountUp(target: number, duration = 600): number {
+  const [value, setValue] = useState(0)
+  const lastRef = useRef(0)
+  useEffect(() => {
+    const from = lastRef.current
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || from === target) {
+      lastRef.current = target
+      setValue(target)
+      return
+    }
+    let raf = 0
+    const start = performance.now()
+    const tick = (t: number) => {
+      const p = Math.min((t - start) / duration, 1)
+      const v = Math.round(from + (target - from) * (1 - Math.pow(1 - p, 3)))
+      lastRef.current = v
+      setValue(v)
+      if (p < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, duration])
+  return value
+}
+
+function StatValue({ value }: { value: number }) {
+  return <p className="text-2xl font-semibold tabular-nums">{useCountUp(value)}</p>
 }
 
 function osFamily(os: string): "macOS" | "Windows" | "Linux" {
@@ -62,6 +148,8 @@ export default function Dashboard() {
   const [activity, setActivity] = useState<AuditEntry[]>([])
   const [alerts, setAlerts]     = useState<Alert[]>([])
   const [loading, setLoading]   = useState(true)
+  // При ошибке загрузки нули — не «пустой парк», CTA показывать нечестно.
+  const [loadFailed, setLoadFailed] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -77,6 +165,7 @@ export default function Dashboard() {
       setActivity(a.data ?? [])
       setAlerts(al.data ?? [])
     }).catch(() => {
+      setLoadFailed(true)
       toast({ title: "Не удалось загрузить данные", variant: "destructive" })
     }).finally(() => setLoading(false))
   }, [])
@@ -94,7 +183,9 @@ export default function Dashboard() {
     return acc
   }, {})
   const osEntries = Object.entries(osCounts).sort((a, b) => b[1] - a[1])
-  const maxOS = Math.max(...osEntries.map(([, n]) => n), 1)
+  // Доли part-to-whole: масштаб от общего числа устройств, не от максимума —
+  // иначе самая крупная ОС всегда рисуется на 100% и полосы визуально врут.
+  const totalDevices = Math.max(devices.length, 1)
 
   if (loading) {
     return <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">Загрузка...</div>
@@ -106,13 +197,15 @@ export default function Dashboard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {/* Цветом метим только то, что требует внимания: непрочитанные алерты. */}
+        {/* Цветом метим только то, что требует внимания: непрочитанные алерты.
+            Нулевые счётчики превращаем в CTA — три нуля подряд читаются как
+            «заброшенный продукт», а «Добавить …» зовёт к действию. */}
         {[
-          { label: "Всего устройств", value: devices.length, icon: Monitor,   sub: `${online} онлайн`, accent: "border-t-brand",     iconColor: "text-brand",            onClick: () => navigate("/devices")  },
-          { label: "Скриптов",        value: scripts.length,  icon: FileCode2, sub: "в библиотеке",     accent: "border-t-brand",     iconColor: "text-brand",            onClick: () => navigate("/scripts")  },
-          { label: "Политик",         value: policies.length, icon: Shield,    sub: "правил ПО",        accent: "border-t-brand",     iconColor: "text-brand",            onClick: () => navigate("/policies") },
-          { label: "Алертов",         value: unackedAlerts,   icon: Bell,      sub: "без ответа",       accent: unackedAlerts > 0 ? "border-t-destructive" : "border-t-border", iconColor: unackedAlerts > 0 ? "text-destructive" : "text-muted-foreground", onClick: () => navigate("/alerts") },
-        ].map(({ label, value, icon: Icon, sub, accent, iconColor, onClick }) => (
+          { label: "Всего устройств", value: devices.length, icon: Monitor,   sub: `${online} онлайн`, cta: "Подключить устройство", accent: "border-t-brand",     iconColor: "text-brand",            onClick: () => navigate("/devices")  },
+          { label: "Скриптов",        value: scripts.length,  icon: FileCode2, sub: "в библиотеке",     cta: "Добавить скрипт",       accent: "border-t-brand",     iconColor: "text-brand",            onClick: () => navigate("/scripts")  },
+          { label: "Политик",         value: policies.length, icon: Shield,    sub: "правил ПО",        cta: "Добавить политику",     accent: "border-t-brand",     iconColor: "text-brand",            onClick: () => navigate("/policies") },
+          { label: "Алертов",         value: unackedAlerts,   icon: Bell,      sub: "без ответа",       cta: "",                      accent: unackedAlerts > 0 ? "border-t-destructive" : "border-t-border", iconColor: unackedAlerts > 0 ? "text-destructive" : "text-muted-foreground", onClick: () => navigate("/alerts") },
+        ].map(({ label, value, icon: Icon, sub, cta, accent, iconColor, onClick }) => (
           <SpotlightCard
             as="button"
             type="button"
@@ -126,8 +219,14 @@ export default function Dashboard() {
               <span className="text-xs text-muted-foreground">{label}</span>
               <Icon className={`h-4 w-4 ${iconColor}`} />
             </div>
-            <p className="text-2xl font-semibold tabular-nums">{value}</p>
-            <p className="text-xs text-muted-foreground mt-1">{sub}</p>
+            <StatValue value={value} />
+            {value === 0 && cta && !loadFailed ? (
+              // В светлой теме --brand (52%) даёт ~4:1 на белом — ниже AA для
+              // text-xs, поэтому CTA затемнён той же тональностью (~6.8:1).
+              <p className="text-xs font-medium text-[hsl(220_65%_42%)] dark:text-brand mt-1">{cta} →</p>
+            ) : (
+              <p className="text-xs text-muted-foreground mt-1">{sub}</p>
+            )}
           </SpotlightCard>
         ))}
       </div>
@@ -147,12 +246,15 @@ export default function Dashboard() {
                   <div key={os}>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs text-muted-foreground">{os}</span>
-                      <span className="text-xs font-medium">{count}</span>
+                      <span className="text-xs font-medium tabular-nums">
+                        {count}
+                        <span className="text-muted-foreground font-normal"> · {Math.round((count / totalDevices) * 100)}%</span>
+                      </span>
                     </div>
                     <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
                       <div
                         className={`h-full rounded-full ${OS_COLOR[os] ?? "bg-zinc-500"} transition-all`}
-                        style={{ width: `${(count / maxOS) * 100}%` }}
+                        style={{ width: `${(count / totalDevices) * 100}%` }}
                       />
                     </div>
                   </div>
@@ -202,23 +304,31 @@ export default function Dashboard() {
             {activity.length === 0 && (
               <p className="text-xs text-muted-foreground px-4 py-6 text-center">Нет событий</p>
             )}
-            {activity.map((e) => (
-              <div key={e.id} className="flex items-start gap-3 px-4 py-3">
-                <div className="mt-0.5 h-6 w-6 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase">
-                    {e.user_email.slice(0, 2)}
-                  </span>
+            {activity.map((e, i) => {
+              const cat = ACTION_CATEGORY[e.action] ?? "content"
+              const { icon: CatIcon, fg, bg } = CATEGORY_STYLE[cat]
+              return (
+                <div
+                  key={e.id}
+                  className={`feed-item flex items-start gap-3 px-4 py-2.5 ${cat === "security" ? "bg-red-500/[0.04]" : ""}`}
+                  style={{ "--i": i } as CSSProperties}
+                >
+                  <div className={`mt-0.5 h-6 w-6 rounded-full ${bg} flex items-center justify-center flex-shrink-0`}>
+                    <CatIcon className={`h-3.5 w-3.5 ${fg}`} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs leading-snug">
+                      <span className="font-medium">{e.user_email}</span>
+                      {" "}
+                      <span className={cat === "security" ? fg : "text-muted-foreground"}>
+                        {ACTION_LABELS[e.action] ?? e.action}
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{formatDistanceToNow(e.created_at)}</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-xs leading-relaxed">
-                    <span className="font-medium">{e.user_email}</span>
-                    {" "}
-                    <span className="text-muted-foreground">{ACTION_LABELS[e.action] ?? e.action}</span>
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{formatDistanceToNow(e.created_at)}</p>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>

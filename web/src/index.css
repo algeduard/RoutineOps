@@ -47,7 +47,9 @@
     --secondary: 224 13% 17%;
     --secondary-foreground: 220 10% 68%;
     --muted: 224 13% 17%;
-    --muted-foreground: 220 8% 50%;
+    /* 55% вместо 50%: на --card (13%) даёт ~4.8:1 — проходит WCAG AA (4.5:1),
+       на 50% было ~4.3:1. */
+    --muted-foreground: 220 8% 55%;
     --accent: 224 13% 18%;
     --accent-foreground: 220 10% 76%;
     --destructive: 0 52% 38%;
@@ -163,6 +165,19 @@
     .spotlight::after {
       display: none;
     }
+  }
+
+  /* Каскадное появление строк ленты активности: новое = внимание. */
+  .feed-item {
+    animation: feed-in 0.25s ease-out both;
+    animation-delay: calc(var(--i, 0) * 25ms);
+  }
+  @keyframes feed-in {
+    from { opacity: 0; translate: 0 4px; }
+    to   { opacity: 1; translate: 0 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .feed-item { animation: none; }
   }
 
   /* Card hover lift */
