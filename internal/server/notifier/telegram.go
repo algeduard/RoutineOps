@@ -38,8 +38,9 @@ func New(token string, db *storage.DB, logger *slog.Logger) *Bot {
 	// send() зовётся из detached-гоурутин (NotifyITAdmins через `go`); без таймаута
 	// http.DefaultClient повис бы навсегда на подвисшем/чёрнодырном Bot API и копил
 	// бы утёкшие гоурутины при каждом алерте. 10с — best-effort-уведомление.
+	// Клиент устойчив к частичной блокировке api.telegram.org (см. telegramHTTPClient).
 	return &Bot{token: token, db: db, logger: logger, baseURL: telegramAPIBase,
-		httpc: &http.Client{Timeout: 10 * time.Second}}
+		httpc: telegramHTTPClient(10 * time.Second)}
 }
 
 func (b *Bot) apiURL(method string) string {
