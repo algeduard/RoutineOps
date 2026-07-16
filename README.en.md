@@ -80,5 +80,4 @@ Full list — [`docs/ROADMAP.md`](./docs/ROADMAP.md).
 **Enterprise licensing, bug reports & suggestions** — email
 [charmander020104@gmail.com](mailto:charmander020104@gmail.com) or Telegram
 [@flood_j](https://t.me/flood_j), or open an
-[Issue](https://github.com/Floodww/RoutineOps/issues) or
-[Discussion](https://github.com/Floodww/RoutineOps/discussions) in this repository.
+[Issue](https://github.com/Floodww/RoutineOps/issues) in this repository.
