@@ -24,5 +24,9 @@ func enterpriseSetup(_ *gateway.Gateway, _ *storage.DB, logger *slog.Logger) []a
 	if os.Getenv("ESCROW_RECIPIENT") != "" || os.Getenv("ESCROW_RECIPIENT_FPR") != "" {
 		logger.Warn("ESCROW_RECIPIENT/_FPR заданы, но это open-core сборка — FileVault escrow недоступен, переменные игнорируются (нужен enterprise-бинарь)")
 	}
+	// Лицензия на open-core бессмысленна: enterprise-фич тут физически нет.
+	if os.Getenv("ROUTINEOPS_LICENSE") != "" || os.Getenv("ROUTINEOPS_LICENSE_FILE") != "" {
+		logger.Warn("ROUTINEOPS_LICENSE задана, но это open-core сборка — enterprise-функций нет, лицензия игнорируется (нужен enterprise-бинарь)")
+	}
 	return nil
 }
