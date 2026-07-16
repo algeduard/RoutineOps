@@ -191,7 +191,10 @@ func (b *Bot) StartPolling(ctx context.Context) {
 	// не ждал Telegram, а HTTP-хендлер читал только кэш.
 	go b.warmUsername(ctx)
 
-	client := &http.Client{Timeout: 40 * time.Second}
+	// Тот же устойчивый к блокировке транспорт, что и у b.httpc (getMe/sendMessage):
+	// иначе long-poll getUpdates дозванивался бы напрямую на заблокированный IP из DNS.
+	// Отдельный клиент — из-за долгого таймаута long-poll (40с против 10с у b.httpc).
+	client := telegramHTTPClient(40 * time.Second)
 
 	for {
 		select {
