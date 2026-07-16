@@ -77,6 +77,8 @@ Enterprise adds on top of the features above:
 This build ships without enterprise code (e.g. `lock_mode=filevault` returns 409).
 Full list — [`docs/ROADMAP.md`](./docs/ROADMAP.md).
 
-**Enterprise licensing, inquiries & suggestions** — open an
+**Enterprise licensing, bug reports & suggestions** — email
+[charmander020104@gmail.com](mailto:charmander020104@gmail.com) or Telegram
+[@flood_j](https://t.me/flood_j), or open an
 [Issue](https://github.com/Floodww/RoutineOps/issues) or
 [Discussion](https://github.com/Floodww/RoutineOps/discussions) in this repository.
