@@ -444,6 +444,42 @@ func (db *DB) CompleteTask(ctx context.Context, taskID, deviceID, status, output
 	return nil
 }
 
+// StaleAckedTimeoutMinutes — сколько ждать ReportTaskResult после ack, прежде чем
+// считать задачу просвистевшей. Втрое больше агентского потолка выполнения скрипта
+// (maxRuntime = 5 мин, internal/agent/command/executor.go): реально выполняющаяся
+// задача заведомо успевает отчитаться, даже медленная.
+const StaleAckedTimeoutMinutes = 15
+
+// FailStaleAckedTasks закрывает задачи, застрявшие в 'acked': агент подтвердил
+// получение, но результат так и не прислал — упал посреди выполнения либо потерял его
+// при сбое отправки (у агента ReportTaskResult идёт мимо durable-очереди). Без этого
+// строка висит БЕССРОЧНО: единственный выход из 'acked' — CompleteTask, а
+// CleanupOldData таблицу tasks не трогает вовсе.
+//
+// task_type='lock' исключён НАМЕРЕННО: лок-задача отчитывается через ReportLockStatus и
+// ReportTaskResult не зовёт никогда (handleLock в internal/agent/command/executor.go),
+// поэтому штатно остаётся в 'acked'. Без этого условия КАЖДЫЙ лок получал бы ложный failed.
+//
+// Статус терминальный ('failed'), а не возврат в 'pending': передоставка бесполезна —
+// агент глушит повтор персистентным seen-set'ом по task_id.
+// Порог считается в SQL (now() на стороне БД), чтобы не зависеть от часов и таймзоны
+// процесса: acked_at пишется тем же серверным now().
+func (db *DB) FailStaleAckedTasks(ctx context.Context, timeoutMinutes int) (int64, error) {
+	res, err := db.pool.Exec(ctx, `
+  UPDATE tasks
+  SET status = 'failed',
+      error_log = 'агент подтвердил получение, но не прислал результат (таймаут)',
+      completed_at = now()
+  WHERE status = 'acked'
+    AND task_type <> 'lock'
+    AND acked_at < now() - make_interval(mins => $1)
+ `, timeoutMinutes)
+	if err != nil {
+		return 0, fmt.Errorf("fail stale acked tasks: %w", err)
+	}
+	return res.RowsAffected(), nil
+}
+
 func (db *DB) GetDeviceCN(ctx context.Context, deviceID string) (string, error) {
 	var cn string
 	err := db.pool.QueryRow(ctx,

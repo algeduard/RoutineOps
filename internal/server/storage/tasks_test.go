@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/Floodww/RoutineOps/internal/server/storage"
 )
 
 func TestCreateTask_ReturnsTask(t *testing.T) {
@@ -199,5 +201,72 @@ func TestUpdateDeviceLockStatus_LockedThenUnlocked(t *testing.T) {
 	}
 	if d2.LockStatus != "unlocked" {
 		t.Errorf("LockStatus = %q, want unlocked", d2.LockStatus)
+	}
+}
+
+// Sweep застрявших в 'acked' задач. Порог проверяется самим параметром, без правки
+// acked_at в обход API: 15 мин — свежая задача НЕ трогается, 0 — трогается.
+// Главное здесь — лок-задача не должна попадать под sweep НИКОГДА: она штатно висит
+// в 'acked' (агент отчитывается через ReportLockStatus), и без исключения по task_type
+// каждый лок получал бы ложный failed.
+func TestFailStaleAckedTasks(t *testing.T) {
+	ctx := context.Background()
+	db := newDB(t)
+	d := mustCreateDevice(t, db, fmt.Sprintf("host-stale-%s", uniq(t)), "windows")
+
+	script, err := db.CreateTask(ctx, d.ID, "whoami", "windows", "normal")
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	lock, err := db.CreateLockTask(ctx, d.ID, "hash", "по требованию ИБ", false, storage.LockModeOverlay)
+	if err != nil {
+		t.Fatalf("CreateLockTask: %v", err)
+	}
+	pending, err := db.CreateTask(ctx, d.ID, "ipconfig", "windows", "normal")
+	if err != nil {
+		t.Fatalf("CreateTask(pending): %v", err)
+	}
+	for _, id := range []string{script.ID, lock.ID} {
+		if err := db.AckTask(ctx, id, d.ID); err != nil {
+			t.Fatalf("AckTask(%s): %v", id, err)
+		}
+	}
+
+	statusOf := func(id string) string {
+		t.Helper()
+		got, err := db.GetTask(ctx, id)
+		if err != nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		return got.Status
+	}
+
+	// Порог не истёк — не трогаем ничего.
+	if _, err := db.FailStaleAckedTasks(ctx, storage.StaleAckedTimeoutMinutes); err != nil {
+		t.Fatalf("FailStaleAckedTasks(15m): %v", err)
+	}
+	if s := statusOf(script.ID); s != "acked" {
+		t.Errorf("свежая задача в пределах порога = %q, want acked", s)
+	}
+
+	// Порог истёк.
+	// Счётчик проверяем на «хотя бы одну», а не на точное число: БД в пакете общая,
+	// и соседние тесты оставляют в 'acked' свои задачи. Точность даёт проверка
+	// статусов по конкретным id ниже.
+	n, err := db.FailStaleAckedTasks(ctx, 0)
+	if err != nil {
+		t.Fatalf("FailStaleAckedTasks(0): %v", err)
+	}
+	if n < 1 {
+		t.Errorf("закрыто задач = %d, want >= 1", n)
+	}
+	if s := statusOf(script.ID); s != "failed" {
+		t.Errorf("просвистевшая script-задача = %q, want failed", s)
+	}
+	if s := statusOf(lock.ID); s != "acked" {
+		t.Errorf("лок-задача = %q, want acked — она НЕ должна попадать под sweep", s)
+	}
+	if s := statusOf(pending.ID); s != "pending" {
+		t.Errorf("pending-задача = %q, want pending", s)
 	}
 }

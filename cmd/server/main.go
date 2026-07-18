@@ -257,6 +257,14 @@ func main() {
 						logger.Error("reconcile: enqueue pending task", "task_id", ref.TaskID, "err", err)
 					}
 				}
+				// Вторая половина реконсиляции — задачи, застрявшие в 'acked': агент
+				// подтвердил получение и пропал, не прислав результат. Своего тикера не
+				// заводим, окно 15 мин к минутному тику нечувствительно.
+				if n, err := db.FailStaleAckedTasks(context.Background(), storage.StaleAckedTimeoutMinutes); err != nil {
+					logger.Error("reconcile: fail stale acked tasks", "err", err)
+				} else if n > 0 {
+					logger.Warn("задачи закрыты по таймауту: агент не прислал результат", "count", n)
+				}
 			}
 		}
 	}()
