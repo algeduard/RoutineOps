@@ -38,6 +38,12 @@ type Reconciler struct {
 	// бы устройство заново тут же после легитимного снятия.
 	lastUnlockedHash string
 
+	// durableReported — hash, для которого уже отправлен повторный UNLOCKED-отчёт
+	// при skip'е по DURABLE-памяти (см. reconcileLocked, #7): отчёт идемпотентен и
+	// достаточно одного на hash за жизнь процесса — доставку до сервера гарантирует
+	// outbox, а слать дубликат каждые 30с при офлайне значит забивать очередь.
+	durableReported string
+
 	// fvInFlight/fvWG — одиночный фоновый воркер FileVault-revoke:
 	// RevokeAndShutdown держит блокирующий durable ReportState
 	// (backoff 1с→2мин до успеха или agent-lifetime ctx) — инлайн-вызов из tick
@@ -187,14 +193,42 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, resp *pb.FetchLockStat
 	r.mu.Lock()
 	skip := hash != "" && hash == r.lastUnlockedHash
 	r.mu.Unlock()
+	if skip {
+		return
+	}
 	// Durable-память снятого лока (переживает ребут, #4): in-memory
 	// lastUnlockedHash после рестарта пуст, но Manager хранит hash последнего
-	// локального снятия на диске — не даём пере-запереть по устаревшему desired,
-	// пока сервер не догнал UNLOCKED-отчёт из outbox.
-	if !skip && hash != "" && hash == r.mgr.LastUnlockedHash() {
-		skip = true
-	}
-	if skip {
+	// локального снятия в защищённом каталоге состояния — не даём пере-запереть
+	// по устаревшему desired, пока сервер не догнал UNLOCKED-отчёт из outbox.
+	//
+	// Молчать при этом нельзя (#7): «desired=locked, а локально unlocked» —
+	// расхождение, которое обязано быть видимым и самозавершающимся. Warn +
+	// повторный идемпотентный UNLOCKED-отчёт (durable, через outbox; одного на
+	// hash достаточно — доставку гарантирует сама очередь): либо сервер догонит
+	// и очистит desired (skip кончится сам), либо оператор увидит правду в
+	// логе и панели вместо вечного тихого return.
+	if hash != "" && hash == r.mgr.LastUnlockedHash() {
+		r.mu.Lock()
+		already := r.durableReported == hash
+		r.durableReported = hash
+		r.mu.Unlock()
+		if !already {
+			r.log.Warn("lock: desired=locked подавлен durable-памятью локального снятия — повторяю UNLOCKED-отчёт серверу",
+				slog.String("request_id", hash))
+			if err := r.report(ctx, &pb.ReportLockStatusRequest{
+				RequestId:  hash,
+				State:      pb.LockState_LOCK_STATE_UNLOCKED,
+				OccurredAt: time.Now().Unix(),
+				Details:    "reconcile: desired=locked suppressed by durable local-unlock memory",
+			}); err != nil {
+				r.log.Error("lock: ReportLockStatus(UNLOCKED) в outbox", slog.Any("error", err))
+				r.mu.Lock()
+				if r.durableReported == hash {
+					r.durableReported = "" // не встал даже в очередь — повторим на следующем тике
+				}
+				r.mu.Unlock()
+			}
+		}
 		return
 	}
 
@@ -222,9 +256,15 @@ func (r *Reconciler) reconcileLocked(ctx context.Context, resp *pb.FetchLockStat
 // обычного unlock-флоу — например, вручную из панели — либо агент потерял
 // какое-то предыдущее unlock-намерение).
 func (r *Reconciler) reconcileUnlocked(ctx context.Context) {
+	// Сервер согласен: устройство unlocked — память о локальном снятии своё
+	// отработала. Чистим ОБЕ копии: in-memory и durable в Manager (иначе
+	// durable-копия жила бы до следующего Lock, а комментарий «память больше
+	// не нужна» врал бы).
 	r.mu.Lock()
-	r.lastUnlockedHash = "" // сервер согласен: устройство unlocked — память больше не нужна
+	r.lastUnlockedHash = ""
+	r.durableReported = ""
 	r.mu.Unlock()
+	r.mgr.ClearLastUnlocked()
 
 	if !r.mgr.Locked() {
 		return

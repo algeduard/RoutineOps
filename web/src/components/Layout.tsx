@@ -81,21 +81,46 @@ export default function Layout() {
 
   // adminOnly скрывает пункт для роли viewer (бэкенд всё равно 403'ит мутации — это UX).
   // Иконки монохромные: активный пункт метится фирменным синим (см. .nav-item-active).
-  const navItems = [
-    { to: "/", label: "Обзор", icon: LayoutDashboard, badge: 0, adminOnly: false },
-    { to: "/devices", label: "Устройства", icon: Monitor, badge: 0, adminOnly: false },
-    { to: "/alerts", label: "Алерты", icon: Bell, badge: 0, adminOnly: false },
-    { to: "/enrollment", label: "Энроллмент", icon: LogIn, badge: queueCount, adminOnly: true },
-    { to: "/admin-access", label: "Заявки на права", icon: KeyRound, badge: pendingCount, adminOnly: true },
-    { to: "/policies", label: "Политики", icon: Shield, badge: 0, adminOnly: true },
-    { to: "/scripts", label: "Скрипты", icon: FileCode2, badge: 0, adminOnly: true },
-    { to: "/script-policies", label: "Политики скриптов", icon: ListChecks, badge: 0, adminOnly: true },
-    { to: "/groups", label: "Группы", icon: Boxes, badge: 0, adminOnly: true },
-    { to: "/audit-log", label: "Журнал", icon: History, badge: 0, adminOnly: false },
-    { to: "/users", label: "Пользователи", icon: Users, badge: 0, adminOnly: true },
-    { to: "/license", label: "Лицензия", icon: BadgeCheck, badge: 0, adminOnly: true },
-    { to: "/profile", label: "Профиль", icon: UserCircle, badge: 0, adminOnly: false },
-  ].filter((i) => !i.adminOnly || isAdmin)
+  // Группы — плоские подписи, а не сворачиваемые секции: пунктов мало, прятать нечего,
+  // а свёрнутая группа спрятала бы счётчики энроллмента и заявок на права.
+  const navSections = [
+    {
+      title: null,
+      items: [
+        { to: "/", label: "Обзор", icon: LayoutDashboard, badge: 0, adminOnly: false },
+        { to: "/alerts", label: "Алерты", icon: Bell, badge: 0, adminOnly: false },
+        { to: "/audit-log", label: "Журнал", icon: History, badge: 0, adminOnly: false },
+      ],
+    },
+    {
+      title: "Хосты",
+      items: [
+        { to: "/devices", label: "Устройства", icon: Monitor, badge: 0, adminOnly: false },
+        { to: "/enrollment", label: "Энроллмент", icon: LogIn, badge: queueCount, adminOnly: true },
+        { to: "/groups", label: "Группы", icon: Boxes, badge: 0, adminOnly: true },
+      ],
+    },
+    {
+      title: "Управление",
+      items: [
+        { to: "/scripts", label: "Скрипты", icon: FileCode2, badge: 0, adminOnly: true },
+        { to: "/script-policies", label: "Политики скриптов", icon: ListChecks, badge: 0, adminOnly: true },
+        { to: "/policies", label: "Политики", icon: Shield, badge: 0, adminOnly: true },
+        { to: "/admin-access", label: "Заявки на права", icon: KeyRound, badge: pendingCount, adminOnly: true },
+      ],
+    },
+    {
+      title: "Настройки",
+      items: [
+        { to: "/profile", label: "Профиль", icon: UserCircle, badge: 0, adminOnly: false },
+        { to: "/users", label: "Пользователи", icon: Users, badge: 0, adminOnly: true },
+        { to: "/license", label: "Лицензия", icon: BadgeCheck, badge: 0, adminOnly: true },
+      ],
+    },
+  ]
+    .map((s) => ({ ...s, items: s.items.filter((i) => !i.adminOnly || isAdmin) }))
+    // У viewer «Управление» пустеет целиком — заголовок без пунктов не рисуем.
+    .filter((s) => s.items.length > 0)
 
   return (
     <div className="flex h-screen">
@@ -117,7 +142,14 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2.5 py-3.5 flex flex-col gap-0.5">
-          {navItems.map(({ to, label, icon: Icon, badge }) => (
+          {navSections.map((section, si) => (
+          <div key={section.title ?? `plain-${si}`} className={cn("flex flex-col gap-0.5", si > 0 && "mt-3")}>
+            {section.title && (
+              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {section.title}
+              </div>
+            )}
+            {section.items.map(({ to, label, icon: Icon, badge }) => (
             <NavLink
               key={to}
               to={to}
@@ -143,6 +175,8 @@ export default function Layout() {
                 </>
               )}
             </NavLink>
+            ))}
+          </div>
           ))}
         </nav>
 

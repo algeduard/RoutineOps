@@ -32,14 +32,18 @@ func TestLock_RejectsInvalidHash(t *testing.T) {
 	}
 }
 
-// #4: hash локально снятого лока переживает «ребут» (новый Manager на том же
-// файле) через State.LastUnlockedHash — чтобы реконсиляция не пере-заперла по
-// устаревшему desired до доставки UNLOCKED-отчёта.
+// #4: hash локально снятого лока переживает «ребут» (новый Manager) через
+// durable-память в ЗАЩИЩЁННОМ файле — чтобы реконсиляция не пере-заперла по
+// устаревшему desired до доставки UNLOCKED-отчёта. Durable-память живёт НЕ в
+// user-writable lock.json (её оттуда подделали бы, #7), а в отдельном файле
+// защищённого каталога состояния (SetDurableUnlockPath).
 func TestUnlock_PersistsLastUnlockedHashAcrossRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lock.json")
+	durable := filepath.Join(t.TempDir(), "lock.last_unlocked")
 	hash := bcryptHash(t, "pw")
 
 	m := New(path, &fakeLocker{}, quietLog())
+	m.SetDurableUnlockPath(durable)
 	if err := m.Lock("r1", hash, "увольнение"); err != nil {
 		t.Fatalf("Lock: %v", err)
 	}
@@ -50,8 +54,9 @@ func TestUnlock_PersistsLastUnlockedHashAcrossRestart(t *testing.T) {
 		t.Fatalf("LastUnlockedHash в памяти = %q, want %q", m.LastUnlockedHash(), hash)
 	}
 
-	// «Ребут»: новый Manager читает тот же файл.
+	// «Ребут»: новый Manager с тем же защищённым файлом.
 	restarted := New(path, &fakeLocker{}, quietLog())
+	restarted.SetDurableUnlockPath(durable)
 	if err := restarted.Load(); err != nil {
 		t.Fatalf("Load: %v", err)
 	}

@@ -123,12 +123,15 @@ type State struct {
 	Reason    string `json:"reason"`     // текст для сотрудника на экране замка
 	RequestID string `json:"request_id"` // id заявки на блокировку (идемпотентность, отчёт)
 	LockedAt  int64  `json:"locked_at"`  // unix-время блокировки
-	// LastUnlockedHash — hash лока, снятого ЛОКАЛЬНО (верный пароль/оффлайн-
-	// обнаружение). Переживает рестарт/ребут, чтобы реконсиляция после старта не
-	// пере-заперла устройство по УСТАРЕВШЕМУ desired=locked, пока сервер не догнал
-	// durable UNLOCKED-отчёт (in-memory lastUnlockedHash реконсилятора при ребуте
-	// теряется — это и был баг). Безопасно лежит бессрочно: hash уникален на лок
-	// (bcrypt случайной соли), тот же самый сервер повторно не выдаст.
+	// LastUnlockedHash в lock.json — ТОЛЬКО транзитный маркер оверлея
+	// (MarkUnlocked): «какой лок реально сверен паролем». Durable-память
+	// последнего локально снятого лока (её читает реконсиляция, чтобы не
+	// пере-запереть по устаревшему desired) здесь НЕ живёт: каталог lock.json
+	// на Windows намеренно user-writable (EnsureUserWritableDir), и значение
+	// поля подделывается копированием Hash из соседнего поля того же файла при
+	// остановленной службе — молчаливое бессрочное подавление пере-запирания
+	// (находка #7). Durable-копия лежит в защищённом каталоге состояния
+	// (SetDurableUnlockPath), Load() значение из lock.json ИГНОРИРУЕТ.
 	LastUnlockedHash string `json:"last_unlocked_hash,omitempty"`
 }
 
@@ -162,9 +165,10 @@ type Locker interface {
 // Manager хранит состояние блокировки, персистит его и управляет платформенным
 // замком. Потокобезопасен.
 type Manager struct {
-	path   string
-	log    *slog.Logger
-	locker Locker
+	path        string
+	durablePath string // durable-память последнего локально снятого лока ("" = только RAM)
+	log         *slog.Logger
+	locker      Locker
 
 	mu    sync.Mutex
 	state State
@@ -176,12 +180,67 @@ func New(path string, locker Locker, log *slog.Logger) *Manager {
 	return &Manager{path: path, log: log, locker: locker}
 }
 
+// SetDurableUnlockPath задаёт файл durable-памяти последнего локально снятого
+// лока. Вызывать до Load. Файл ОБЯЗАН лежать в защищённом каталоге состояния
+// (admin-only DACL на Windows, root-владение на unix — там же, где outbox и
+// tasks.seen), а не рядом с lock.json: тот каталог намеренно user-writable
+// (лок-экран/трей юзер-сессии), и durable-подавление пере-запирания оттуда
+// подделывается любым локальным пользователем при остановленной службе
+// ({"locked":false,"last_unlocked_hash":<Hash из соседнего поля>} — молчаливое
+// бессрочное отключение kill-switch, находка #7). Пустой путь — память живёт
+// только в RAM процесса (тесты/дев-режим).
+func (m *Manager) SetDurableUnlockPath(p string) { m.durablePath = p }
+
+// readDurableUnlocked читает durable-память ("" — нет файла/пути).
+func (m *Manager) readDurableUnlocked() string {
+	if m.durablePath == "" {
+		return ""
+	}
+	b, err := os.ReadFile(m.durablePath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// writeDurableUnlocked записывает durable-память. Best-effort: при ошибке лишь
+// предупреждаем — после ребута реконсиляция может пере-запереть устройство до
+// того, как сервер догонит UNLOCKED-отчёт (неприятно, но fail-safe: лучше лишний
+// лок, чем тихо потерянный). Вызывать под m.mu.
+func (m *Manager) writeDurableUnlocked(hash string) {
+	if m.durablePath == "" {
+		return
+	}
+	if err := os.WriteFile(m.durablePath, []byte(hash), 0o600); err != nil {
+		m.log.Warn("lock: durable-память снятого лока не записана — после ребута возможна пере-блокировка до догона сервера",
+			slog.String("path", m.durablePath), slog.Any("error", err))
+	}
+}
+
+// ClearLastUnlocked забывает durable-память последнего локально снятого лока.
+// Звать, когда сервер подтвердил desired=unlocked (Reconciler.reconcileUnlocked):
+// память своё отработала, держать её дольше незачем.
+func (m *Manager) ClearLastUnlocked() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.state.LastUnlockedHash = ""
+	if m.durablePath != "" {
+		_ = os.Remove(m.durablePath) // отсутствие файла — не ошибка
+	}
+}
+
 // Load читает состояние с диска и, если устройство было заблокировано, поднимает
 // замок (вызывать на старте агента — переживание рестарта/ребута). Отсутствие
 // файла — не ошибка (никогда не блокировались).
 func (m *Manager) Load() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Durable-память снятого лока — из защищённого файла, НЕ из lock.json:
+	// его каталог user-writable (Windows), и значение поля там — либо транзитный
+	// маркер оверлея, либо подделка (#7). Читаем до/независимо от lock.json.
+	durableUnlocked := m.readDurableUnlocked()
+	m.state.LastUnlockedHash = durableUnlocked
 
 	data, err := os.ReadFile(m.path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -193,6 +252,7 @@ func (m *Manager) Load() error {
 	if err := json.Unmarshal(data, &m.state); err != nil {
 		return err
 	}
+	m.state.LastUnlockedHash = durableUnlocked
 	if m.state.Locked {
 		m.log.Warn("lock: устройство было заблокировано — поднимаю замок после старта",
 			slog.String("request_id", m.state.RequestID))
@@ -369,10 +429,12 @@ func (m *Manager) detectOfflineUnlock(onOfflineUnlock func(requestID, hash strin
 			slog.String("request_id", reqID), slog.String("stale_unlocked_hash", st.LastUnlockedHash))
 		return
 	}
-	// Легитимное снятие: синхронизируем память и уведомляем. Перезаписываем
-	// внешне-очищенный файл, СОХРАНЯЯ hash снятого лока durably (переживёт ребут —
-	// реконсиляция не пере-запрёт по устаревшему desired, #4).
+	// Легитимное снятие: синхронизируем память и уведомляем. hash снятого лока
+	// сохраняем durably в ЗАЩИЩЁННОМ файле (переживёт ребут — реконсиляция не
+	// пере-запрёт по устаревшему desired, #4; в user-writable lock.json копия
+	// поля — лишь информационная, Load её игнорирует, #7).
 	m.state = State{LastUnlockedHash: hash}
+	m.writeDurableUnlocked(hash)
 	_ = m.persist()
 	m.mu.Unlock()
 	m.locker.Hide()
@@ -418,9 +480,11 @@ func (m *Manager) unlockLocked(reason string) error {
 		return nil
 	}
 	reqID := m.state.RequestID
-	// Сохраняем hash снятого лока durably (переживёт ребут, #4): реконсиляция
-	// после старта не пере-запрёт устройство по устаревшему desired=locked.
+	// Сохраняем hash снятого лока durably в защищённом файле (переживёт ребут,
+	// #4): реконсиляция после старта не пере-запрёт устройство по устаревшему
+	// desired=locked. Копия в lock.json — информационная (Load игнорирует, #7).
 	m.state = State{LastUnlockedHash: m.state.Hash}
+	m.writeDurableUnlocked(m.state.LastUnlockedHash)
 	err := m.persist()
 	m.locker.Hide()
 	m.log.Warn("lock: устройство разблокировано", slog.String("request_id", reqID), slog.String("reason", reason))

@@ -1626,6 +1626,12 @@ func runAgent(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 	self, _ := os.Executable()
 	locker := lock.New(lockPath, lock.NewPlatformLocker(self, log), log)
+	// Durable-память локального снятия — в ЗАЩИЩЁННОМ каталоге состояния (рядом
+	// с tasks.seen: ProgramData\...\state на Windows, DataDir на unix), а НЕ в
+	// user-writable каталоге lock.json: оттуда подделка файла при остановленной
+	// службе молча и бессрочно подавляла бы пере-запирание (#7). Путь выводится
+	// из TaskStateFile — те же каталог и права, без новых флагов службы.
+	locker.SetDurableUnlockPath(filepath.Join(filepath.Dir(cfg.TaskStateFile), "lock.last_unlocked"))
 	if err := locker.Load(); err != nil {
 		log.Error("lock: загрузка состояния блокировки", slog.Any("error", err))
 	}
