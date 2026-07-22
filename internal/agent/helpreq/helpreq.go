@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/Floodww/RoutineOps/internal/agent/transport"
@@ -43,6 +44,11 @@ func Write(path string, r UserRequest) error {
 	}
 	data, err := json.Marshal(r)
 	if err != nil {
+		return err
+	}
+	// Общий каталог обычно уже создан службой (status.json/lock.json), но на
+	// свежей машине окно помощи может успеть раньше — не падаем из-за каталога.
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
