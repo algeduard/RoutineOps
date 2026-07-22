@@ -1,4 +1,9 @@
 import { DeviceGroupRef } from "@/lib/api"
+import { useT } from "@/lib/i18n"
+
+const M = {
+  groupTitle: { ru: "Группа: {name}", en: "Group: {name}" },
+}
 
 // groupAccent — цвет, которым красится рамка устройства. Устройство может состоять в
 // нескольких группах; берём ПЕРВУЮ (сервер отдаёт их отсортированными по имени, значит
@@ -10,6 +15,7 @@ export function groupAccent(groups?: DeviceGroupRef[]): string | null {
 // GroupBadge — имя группы с цветной точкой. Цвет приходит из БД произвольным hex'ом,
 // поэтому он в inline-style: класса Tailwind под него не существует.
 export function GroupBadge({ group }: { group: DeviceGroupRef }) {
+  const t = useT()
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium"
@@ -18,7 +24,7 @@ export function GroupBadge({ group }: { group: DeviceGroupRef }) {
         backgroundColor: `${group.color}1a`,
         color: group.color,
       }}
-      title={`Группа: ${group.name}`}
+      title={t(M.groupTitle, { name: group.name })}
     >
       <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: group.color }} />
       {group.name}

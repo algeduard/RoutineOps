@@ -7,8 +7,18 @@ import { Label } from "@/components/ui/label"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { RoutineOpsLogo } from "@/components/RoutineOpsLogo"
 import SpotlightCard from "@/components/SpotlightCard"
+import { useT } from "@/lib/i18n"
+
+const M = {
+  invalidCredentials: { ru: "Неверный email или пароль", en: "Invalid email or password" },
+  password: { ru: "Пароль", en: "Password" },
+  signingIn: { ru: "Вход...", en: "Signing in..." },
+  signIn: { ru: "Войти", en: "Sign in" },
+  forgotPassword: { ru: "Забыли пароль?", en: "Forgot password?" },
+}
 
 export default function Login() {
+  const t = useT()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -23,7 +33,7 @@ export default function Login() {
       await login(email, password)
       navigate("/dashboard")
     } catch {
-      setError("Неверный email или пароль")
+      setError(t(M.invalidCredentials))
     } finally {
       setLoading(false)
     }
@@ -53,7 +63,7 @@ export default function Login() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-soft">Пароль</Label>
+              <Label htmlFor="password" className="text-soft">{t(M.password)}</Label>
               <Input
                 id="password"
                 type="password"
@@ -66,10 +76,10 @@ export default function Login() {
                 берём тот же красный, что у алерт-цифры на дашборде. */}
             {error && <p className="text-sm text-destructive dark:text-[hsl(0_72%_66%)]">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Вход..." : "Войти"}
+              {loading ? t(M.signingIn) : t(M.signIn)}
             </Button>
             <Link to="/forgot-password" className="block text-center text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Забыли пароль?
+              {t(M.forgotPassword)}
             </Link>
           </form>
         </CardContent>

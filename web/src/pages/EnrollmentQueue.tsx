@@ -13,6 +13,83 @@ import { Select } from "@/components/ui/select"
 import ConfirmDialog from "@/components/ConfirmDialog"
 import { formatDistanceToNow } from "@/lib/time"
 import { toast } from "@/lib/toast"
+import { useT, getLang } from "@/lib/i18n"
+
+const M = {
+  loadFailedToast: { ru: "Не удалось загрузить устройства", en: "Failed to load devices" },
+  approvedOne: { ru: "{name} одобрено", en: "{name} approved" },
+  rejectedOne: { ru: "{name} отклонено", en: "{name} rejected" },
+  approvedN: { ru: "Одобрено устройств: {n}", en: "Devices approved: {n}" },
+  rejectedN: { ru: "Отклонено устройств: {n}", en: "Devices rejected: {n}" },
+  loading: { ru: "Загрузка...", en: "Loading..." },
+  title: { ru: "Энроллмент", en: "Enrollment" },
+  issueTokenBtn: { ru: "Выпустить токен", en: "Issue token" },
+  bulkTokenTitle: { ru: "Массовый токен энроллмента", en: "Bulk enrollment token" },
+  tokenIssued: { ru: "Токен выпущен", en: "Token issued" },
+  oneTokenPerBatch: {
+    ru: "Один токен на партию машин. Устройство создаётся само при первом подключении — заводить его заранее не нужно.",
+    en: "One token for a batch of machines. A device is created automatically on first connection — no need to add it in advance.",
+  },
+  groupLabel: { ru: "Группа", en: "Group" },
+  noGroup: { ru: "Без группы", en: "No group" },
+  groupHint: {
+    ru: "Всё, что подключится по этому токену, попадёт в группу — назначать её каждой машине руками не нужно.",
+    en: "Everything that connects with this token joins the group — no need to assign it to each machine by hand.",
+  },
+  maxUsesLabel: { ru: "Лимит использований", en: "Usage limit" },
+  unlimited: { ru: "без лимита", en: "unlimited" },
+  ttlLabel: { ru: "Срок жизни, часов", en: "Lifetime, hours" },
+  requireApprovalLabel: { ru: "Требовать одобрения", en: "Require approval" },
+  requireApprovalHint: {
+    ru: "Устройства встанут в очередь: подключатся и отдадут инвентарь, но скрипты выполнять не будут, пока их не одобрят. Снимать галочку стоит, только если токен уезжает в закрытый контур.",
+    en: "Devices will queue up: they connect and report inventory but will not run scripts until approved. Only uncheck this if the token is going into an isolated environment.",
+  },
+  issuing: { ru: "Выпуск...", en: "Issuing..." },
+  issue: { ru: "Выпустить", en: "Issue" },
+  queueOnApproval: { ru: "Машины по этому токену встанут в очередь одобрения.", en: "Machines using this token will enter the approval queue." },
+  connectImmediately: { ru: "Машины по этому токену подключатся сразу, без одобрения.", en: "Machines using this token will connect immediately, without approval." },
+  validUntil: { ru: "Действует до {date}.", en: "Valid until {date}." },
+  osLabel: { ru: "ОС", en: "OS" },
+  copiedAria: { ru: "Команда скопирована", en: "Command copied" },
+  copyAria: { ru: "Скопировать команду", en: "Copy command" },
+  noCaWarn: { ru: "Сервер поднят без CA — пин сертификата недоступен.", en: "The server is running without a CA — certificate pinning is unavailable." },
+  saveNow: { ru: "Сохраните команду сейчас — повторно токен посмотреть будет нельзя.", en: "Save the command now — you will not be able to view the token again." },
+  done: { ru: "Готово", en: "Done" },
+  approvalQueue: { ru: "Очередь одобрения", en: "Approval queue" },
+  awaitingAdmin: { ru: "Ждут решения администратора", en: "Awaiting administrator decision" },
+  approveAll: { ru: "Одобрить все", en: "Approve all" },
+  rejectAll: { ru: "Отклонить все", en: "Reject all" },
+  colName: { ru: "Имя", en: "Name" },
+  colSerial: { ru: "Серийный номер", en: "Serial number" },
+  colGroups: { ru: "Группы", en: "Groups" },
+  colConnected: { ru: "Подключилось", en: "Connected" },
+  colStatus: { ru: "Статус", en: "Status" },
+  loadFailedQueue: { ru: "Не удалось загрузить список — очередь может быть НЕ пуста.", en: "Failed to load the list — the queue may NOT be empty." },
+  retry: { ru: "Повторить", en: "Retry" },
+  queueEmpty: {
+    ru: "Очередь пуста — новые устройства появятся здесь, как только подключатся по массовому токену. Список обновляется сам.",
+    en: "The queue is empty — new devices will appear here as soon as they connect with a bulk token. The list refreshes automatically.",
+  },
+  approve: { ru: "Одобрить", en: "Approve" },
+  reject: { ru: "Отклонить", en: "Reject" },
+  rejectedHeading: { ru: "Отклонённые — {n}", en: "Rejected — {n}" },
+  terminalStatus: { ru: "Статус терминальный", en: "Terminal status" },
+  rejectDeviceTitle: { ru: "Отклонить устройство?", en: "Reject device?" },
+  rejectDeviceDesc: {
+    ru: "«{name}» потеряет доступ: статус терминальный, обратно через одобрение не вернуть — машину придётся энролить заново.",
+    en: "“{name}” will lose access: the status is terminal and cannot be restored via approval — the machine will have to be re-enrolled.",
+  },
+  approveAllTitle: { ru: "Одобрить все устройства в очереди?", en: "Approve all devices in the queue?" },
+  approveAllDesc: {
+    ru: "Сейчас в очереди: {n}. Одобрение снимает ограничение и даёт машинам полный доступ, включая выполнение скриптов. Действие применится ко всем, кто стоит в очереди на момент подтверждения, — включая тех, кто мог подключиться, пока вы читали список.",
+    en: "Currently in the queue: {n}. Approval lifts the restriction and grants machines full access, including running scripts. This applies to everyone in the queue at the moment of confirmation — including those that may have connected while you were reading the list.",
+  },
+  rejectAllTitle: { ru: "Отклонить все устройства в очереди?", en: "Reject all devices in the queue?" },
+  rejectAllDesc: {
+    ru: "Будет отклонено устройств: {n}. Статус терминальный — вернуть их можно только повторным энроллментом.",
+    en: "Devices to be rejected: {n}. The status is terminal — they can only be restored by re-enrollment.",
+  },
+}
 
 type DialogStep = "form" | "token"
 
@@ -73,6 +150,7 @@ export function bulkTokenBody(opts: {
 }
 
 export default function EnrollmentQueue() {
+  const t = useT()
   const navigate = useNavigate()
   const [devices, setDevices] = useState<Device[]>([])
   const [groups, setGroups] = useState<DeviceGroup[]>([])
@@ -106,7 +184,7 @@ export default function EnrollmentQueue() {
       // 🔴 Не глотаем: на экране безопасности пустая таблица читается как «всё чисто».
       // Отказ загрузки обязан выглядеть отказом, а не пустой очередью.
       setLoadFailed(true)
-      toast({ title: "Не удалось загрузить устройства", variant: "destructive" })
+      toast({ title: t(M.loadFailedToast), variant: "destructive" })
     } finally {
       setLoading(false)
     }
@@ -117,8 +195,8 @@ export default function EnrollmentQueue() {
   // и об этом в UI не было бы ни слова. Интервал — как в Devices.tsx.
   useEffect(() => {
     load()
-    const t = setInterval(load, 30_000)
-    return () => clearInterval(t)
+    const iv = setInterval(load, 30_000)
+    return () => clearInterval(iv)
   }, [])
 
   // Группы — отдельным запросом: страница обязана работать и без них (список групп
@@ -138,7 +216,7 @@ export default function EnrollmentQueue() {
       await api.post(`/devices/${device.id}/${action}`)
       await load()
       toast({
-        title: action === "approve" ? `${device.hostname} одобрено` : `${device.hostname} отклонено`,
+        title: action === "approve" ? t(M.approvedOne, { name: device.hostname }) : t(M.rejectedOne, { name: device.hostname }),
         variant: action === "approve" ? "success" : "default",
       })
     } catch {
@@ -158,7 +236,7 @@ export default function EnrollmentQueue() {
       const n = action === "approve" ? r.data.approved : r.data.rejected
       await load()
       toast({
-        title: action === "approve" ? `Одобрено устройств: ${n ?? 0}` : `Отклонено устройств: ${n ?? 0}`,
+        title: action === "approve" ? t(M.approvedN, { n: n ?? 0 }) : t(M.rejectedN, { n: n ?? 0 }),
         variant: action === "approve" ? "success" : "default",
       })
     } catch {
@@ -211,58 +289,56 @@ export default function EnrollmentQueue() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  if (loading) return <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">Загрузка...</div>
+  if (loading) return <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">{t(M.loading)}</div>
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-foreground">Энроллмент</h1>
+        <h1 className="text-xl font-semibold text-foreground">{t(M.title)}</h1>
         {/* Сбрасываем ТОЛЬКО когда закрыли форму: на шаге «токен» Esc или клик мимо
             стёрли бы единственную копию токена — на сервере он лежит хэшем, перечитать
             нечем, отозвать тоже нечем. Случайное закрытие теперь просто прячет диалог,
             «Выпустить токен» возвращает к той же команде. Стирает только «Готово». */}
         <Dialog open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if (!o && step === "form") resetDialog() }}>
           <DialogTrigger asChild>
-            <Button size="sm">Выпустить токен</Button>
+            <Button size="sm">{t(M.issueTokenBtn)}</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{step === "form" ? "Массовый токен энроллмента" : "Токен выпущен"}</DialogTitle>
+              <DialogTitle>{step === "form" ? t(M.bulkTokenTitle) : t(M.tokenIssued)}</DialogTitle>
             </DialogHeader>
 
             {step === "form" && (
               <div className="space-y-4 pt-2">
                 <p className="text-sm text-muted-foreground">
-                  Один токен на партию машин. Устройство создаётся само при первом подключении —
-                  заводить его заранее не нужно.
+                  {t(M.oneTokenPerBatch)}
                 </p>
                 <div className="space-y-1.5">
-                  <Label>Группа</Label>
+                  <Label>{t(M.groupLabel)}</Label>
                   <Select
                     value={groupID}
                     onChange={setGroupID}
                     options={[
-                      { value: NO_GROUP, label: "Без группы" },
+                      { value: NO_GROUP, label: t(M.noGroup) },
                       ...groups.map((g) => ({ value: g.id, label: g.name })),
                     ]}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Всё, что подключится по этому токену, попадёт в группу — назначать её
-                    каждой машине руками не нужно.
+                    {t(M.groupHint)}
                   </p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Лимит использований</Label>
+                  <Label>{t(M.maxUsesLabel)}</Label>
                   <Input
                     type="number"
                     min={1}
-                    placeholder="без лимита"
+                    placeholder={t(M.unlimited)}
                     value={maxUses}
                     onChange={(e) => setMaxUses(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Срок жизни, часов</Label>
+                  <Label>{t(M.ttlLabel)}</Label>
                   <Input
                     type="number"
                     min={1}
@@ -278,16 +354,14 @@ export default function EnrollmentQueue() {
                     onChange={(e) => setRequireApproval(e.target.checked)}
                   />
                   <span>
-                    Требовать одобрения
+                    {t(M.requireApprovalLabel)}
                     <span className="block text-xs text-muted-foreground">
-                      Устройства встанут в очередь: подключатся и отдадут инвентарь, но скрипты
-                      выполнять не будут, пока их не одобрят. Снимать галочку стоит, только если
-                      токен уезжает в закрытый контур.
+                      {t(M.requireApprovalHint)}
                     </span>
                   </span>
                 </label>
                 <Button className="w-full" onClick={issueToken} disabled={issuing}>
-                  {issuing ? "Выпуск..." : "Выпустить"}
+                  {issuing ? t(M.issuing) : t(M.issue)}
                 </Button>
               </div>
             )}
@@ -296,12 +370,12 @@ export default function EnrollmentQueue() {
               <div className="space-y-4 pt-2">
                 <p className="text-sm text-muted-foreground">
                   {result.require_approval
-                    ? "Машины по этому токену встанут в очередь одобрения."
-                    : "Машины по этому токену подключатся сразу, без одобрения."}
-                  {" "}Действует до {new Date(result.expires_at).toLocaleString("ru-RU")}.
+                    ? t(M.queueOnApproval)
+                    : t(M.connectImmediately)}
+                  {" "}{t(M.validUntil, { date: new Date(result.expires_at).toLocaleString(getLang() === "en" ? "en-US" : "ru-RU") })}
                 </p>
                 <div className="space-y-1.5">
-                  <Label>ОС</Label>
+                  <Label>{t(M.osLabel)}</Label>
                   <Select
                     value={cmdOS}
                     onChange={setCmdOS}
@@ -319,7 +393,7 @@ export default function EnrollmentQueue() {
                   <button
                     type="button"
                     onClick={copyCommand}
-                    aria-label={copied ? "Команда скопирована" : "Скопировать команду"}
+                    aria-label={copied ? t(M.copiedAria) : t(M.copyAria)}
                     className="absolute right-2 top-2 rounded p-1 text-muted-foreground hover:text-foreground transition-colors"
                   >
                     {copied ? <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-500" /> : <Copy className="h-4 w-4" />}
@@ -329,14 +403,14 @@ export default function EnrollmentQueue() {
                   <p>Token: <span className="font-mono">{result.enrollment_token}</span></p>
                   {result.ca_sha256
                     ? <p>CA SHA-256: <span className="font-mono break-all">{result.ca_sha256}</span></p>
-                    : <p className="text-amber-600 dark:text-amber-500">Сервер поднят без CA — пин сертификата недоступен.</p>}
+                    : <p className="text-amber-600 dark:text-amber-500">{t(M.noCaWarn)}</p>}
                 </div>
                 {/* Токен показывается ОДИН раз: на сервере он лежит хэшем, переоткрыть нечем. */}
                 <p className="text-xs text-muted-foreground">
-                  Сохраните команду сейчас — повторно токен посмотреть будет нельзя.
+                  {t(M.saveNow)}
                 </p>
                 <Button className="w-full" variant="outline" onClick={() => { setDialogOpen(false); resetDialog() }}>
-                  Готово
+                  {t(M.done)}
                 </Button>
               </div>
             )}
@@ -348,9 +422,9 @@ export default function EnrollmentQueue() {
         <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-3">
           <div>
             <h2 className="text-[15px] font-semibold text-foreground">
-              Очередь одобрения{queue.length > 0 && <span className="text-muted-foreground"> — {queue.length}</span>}
+              {t(M.approvalQueue)}{queue.length > 0 && <span className="text-muted-foreground"> — {queue.length}</span>}
             </h2>
-            <p className="text-xs text-muted-foreground">Ждут решения администратора</p>
+            <p className="text-xs text-muted-foreground">{t(M.awaitingAdmin)}</p>
           </div>
           {queue.length > 0 && (
             <div className="flex flex-shrink-0 gap-2">
@@ -359,10 +433,10 @@ export default function EnrollmentQueue() {
                   могли приехать ещё машины. Подтверждение обязательно — раньше его имела
                   только менее опасная кнопка «Отклонить все». */}
               <Button size="sm" variant="outline" disabled={submitting} onClick={() => setConfirmApproveAll(true)}>
-                Одобрить все
+                {t(M.approveAll)}
               </Button>
               <Button size="sm" variant="destructive" disabled={submitting} onClick={() => setConfirmRejectAll(true)}>
-                Отклонить все
+                {t(M.rejectAll)}
               </Button>
             </div>
           )}
@@ -370,15 +444,15 @@ export default function EnrollmentQueue() {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="text-xs">Имя</TableHead>
-              <TableHead className="text-xs">ОС</TableHead>
+              <TableHead className="text-xs">{t(M.colName)}</TableHead>
+              <TableHead className="text-xs">{t(M.osLabel)}</TableHead>
               {/* Серийник — единственное в этой таблице, что админ может сверить с
                   реальной машиной: hostname и ОС агент сообщает о себе сам, и назваться
                   «BUH-WS-01» может кто угодно. */}
-              <TableHead className="text-xs">Серийный номер</TableHead>
+              <TableHead className="text-xs">{t(M.colSerial)}</TableHead>
               <TableHead className="text-xs">IP</TableHead>
-              <TableHead className="text-xs">Группы</TableHead>
-              <TableHead className="text-xs">Подключилось</TableHead>
+              <TableHead className="text-xs">{t(M.colGroups)}</TableHead>
+              <TableHead className="text-xs">{t(M.colConnected)}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -388,13 +462,12 @@ export default function EnrollmentQueue() {
                 <TableCell colSpan={7} className="text-center py-8 text-sm">
                   {loadFailed ? (
                     <span className="text-destructive">
-                      Не удалось загрузить список — очередь может быть НЕ пуста.{" "}
-                      <button type="button" className="underline" onClick={() => load()}>Повторить</button>
+                      {t(M.loadFailedQueue)}{" "}
+                      <button type="button" className="underline" onClick={() => load()}>{t(M.retry)}</button>
                     </span>
                   ) : (
                     <span className="text-muted-foreground">
-                      Очередь пуста — новые устройства появятся здесь, как только подключатся
-                      по массовому токену. Список обновляется сам.
+                      {t(M.queueEmpty)}
                     </span>
                   )}
                 </TableCell>
@@ -428,10 +501,10 @@ export default function EnrollmentQueue() {
                     className="text-emerald-600 border-emerald-500/40 hover:bg-emerald-500/10 dark:text-emerald-400 mr-2"
                     onClick={() => decide(d, "approve")}
                   >
-                    Одобрить
+                    {t(M.approve)}
                   </Button>
                   <Button size="sm" variant="destructive" disabled={submitting} onClick={() => setConfirmReject(d)}>
-                    Отклонить
+                    {t(M.reject)}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -445,16 +518,16 @@ export default function EnrollmentQueue() {
       {rejected.length > 0 && (
         <div className="glass overflow-hidden">
           <div className="px-5 pt-4 pb-3">
-            <h2 className="text-[15px] font-semibold text-foreground">Отклонённые — {rejected.length}</h2>
-            <p className="text-xs text-muted-foreground">Статус терминальный</p>
+            <h2 className="text-[15px] font-semibold text-foreground">{t(M.rejectedHeading, { n: rejected.length })}</h2>
+            <p className="text-xs text-muted-foreground">{t(M.terminalStatus)}</p>
           </div>
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="text-xs">Имя</TableHead>
-                <TableHead className="text-xs">ОС</TableHead>
+                <TableHead className="text-xs">{t(M.colName)}</TableHead>
+                <TableHead className="text-xs">{t(M.osLabel)}</TableHead>
                 <TableHead className="text-xs">IP</TableHead>
-                <TableHead className="text-xs text-right">Статус</TableHead>
+                <TableHead className="text-xs text-right">{t(M.colStatus)}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -484,11 +557,11 @@ export default function EnrollmentQueue() {
       <ConfirmDialog
         open={!!confirmReject}
         onOpenChange={(o) => !o && setConfirmReject(null)}
-        title="Отклонить устройство?"
+        title={t(M.rejectDeviceTitle)}
         description={confirmReject
-          ? `«${confirmReject.hostname}» потеряет доступ: статус терминальный, обратно через одобрение не вернуть — машину придётся энролить заново.`
+          ? t(M.rejectDeviceDesc, { name: confirmReject.hostname })
           : ""}
-        confirmLabel="Отклонить"
+        confirmLabel={t(M.reject)}
         destructive
         onConfirm={() => { if (confirmReject) decide(confirmReject, "reject") }}
       />
@@ -496,18 +569,18 @@ export default function EnrollmentQueue() {
       <ConfirmDialog
         open={confirmApproveAll}
         onOpenChange={setConfirmApproveAll}
-        title="Одобрить все устройства в очереди?"
-        description={`Сейчас в очереди: ${queue.length}. Одобрение снимает ограничение и даёт машинам полный доступ, включая выполнение скриптов. Действие применится ко всем, кто стоит в очереди на момент подтверждения, — включая тех, кто мог подключиться, пока вы читали список.`}
-        confirmLabel="Одобрить все"
+        title={t(M.approveAllTitle)}
+        description={t(M.approveAllDesc, { n: queue.length })}
+        confirmLabel={t(M.approveAll)}
         onConfirm={() => decideAll("approve")}
       />
 
       <ConfirmDialog
         open={confirmRejectAll}
         onOpenChange={setConfirmRejectAll}
-        title="Отклонить все устройства в очереди?"
-        description={`Будет отклонено устройств: ${queue.length}. Статус терминальный — вернуть их можно только повторным энроллментом.`}
-        confirmLabel="Отклонить все"
+        title={t(M.rejectAllTitle)}
+        description={t(M.rejectAllDesc, { n: queue.length })}
+        confirmLabel={t(M.rejectAll)}
         destructive
         onConfirm={() => decideAll("reject")}
       />

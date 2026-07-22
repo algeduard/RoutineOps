@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { UserPlus } from "lucide-react"
 import { toast } from "@/lib/toast"
+import { useT, type Msg } from "@/lib/i18n"
 
 interface User {
   id: string
@@ -18,12 +19,51 @@ interface User {
   created_at: string
 }
 
-const roleLabels: Record<string, string> = {
-  it_admin: "IT-администратор",
-  viewer: "Наблюдатель",
+const roleLabels: Record<string, Msg> = {
+  it_admin: { ru: "IT-администратор", en: "IT administrator" },
+  viewer: { ru: "Наблюдатель", en: "Viewer" },
+}
+
+const M = {
+  title: { ru: "Пользователи", en: "Users" },
+  invite: { ru: "Пригласить", en: "Invite" },
+  accounts: { ru: "Учётные записи", en: "Accounts" },
+  accountsSub: { ru: "Доступ к панели управления", en: "Admin console access" },
+  searchEmail: { ru: "Поиск по email...", en: "Search by email..." },
+  colName: { ru: "Имя", en: "Name" },
+  colEmail: { ru: "Email", en: "Email" },
+  colRole: { ru: "Роль", en: "Role" },
+  colAdded: { ru: "Добавлен", en: "Added" },
+  loading: { ru: "Загрузка...", en: "Loading..." },
+  noUsers: { ru: "Пользователей нет", en: "No users" },
+  nothingFound: { ru: "Ничего не найдено", en: "Nothing found" },
+  inviteUser: { ru: "Пригласить пользователя", en: "Invite a user" },
+  emailLabel: { ru: "Email", en: "Email" },
+  roleLabel: { ru: "Роль", en: "Role" },
+  inviteLinkLabel: { ru: "Ссылка-приглашение (передайте вручную)", en: "Invite link (share manually)" },
+  inviteLinkHint: {
+    ru: "Письмо не отправлено (SMTP выключен или недоступен). Скопируйте ссылку и передайте пользователю.",
+    en: "The email was not sent (SMTP is disabled or unavailable). Copy the link and share it with the user.",
+  },
+  close: { ru: "Закрыть", en: "Close" },
+  cancel: { ru: "Отмена", en: "Cancel" },
+  sending: { ru: "Отправка...", en: "Sending..." },
+  sendInvite: { ru: "Отправить приглашение", en: "Send invite" },
+  loadErr: { ru: "Не удалось загрузить пользователей", en: "Failed to load users" },
+  inviteSent: { ru: "Приглашение отправлено на {email}", en: "Invite sent to {email}" },
+  emailNotSentCopyLink: {
+    ru: "Письмо не отправлено — скопируйте ссылку-приглашение вручную",
+    en: "Email not sent — copy the invite link manually",
+  },
+  inviteCreatedNoLink: {
+    ru: "Приглашение создано, но письмо не отправлено и ссылка недоступна",
+    en: "Invite created, but the email was not sent and no link is available",
+  },
+  inviteErr: { ru: "Не удалось отправить приглашение", en: "Failed to send invite" },
 }
 
 export default function Users() {
+  const t = useT()
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState("")
@@ -38,7 +78,7 @@ export default function Users() {
   useEffect(() => {
     api.get<User[]>("/users")
       .then((r) => setUsers(r.data))
-      .catch(() => toast({ title: "Не удалось загрузить пользователей", variant: "destructive" }))
+      .catch(() => toast({ title: t(M.loadErr), variant: "destructive" }))
       .finally(() => setLoading(false))
   }, [])
 
@@ -50,7 +90,7 @@ export default function Users() {
       const r = await api.post<{ email_sent?: string; invite_url?: string }>(
         "/users/invite", { email: inviteEmail, role: inviteRole })
       if (r.data.email_sent === "true") {
-        toast({ title: `Приглашение отправлено на ${inviteEmail}`, variant: "success" })
+        toast({ title: t(M.inviteSent, { email: inviteEmail }), variant: "success" })
         setInviteOpen(false)
         setInviteEmail("")
         return
@@ -59,12 +99,12 @@ export default function Users() {
       // диалог НЕ закрываем, иначе ссылка потеряется.
       if (r.data.invite_url) {
         setInviteLink(r.data.invite_url)
-        toast({ title: "Письмо не отправлено — скопируйте ссылку-приглашение вручную", variant: "destructive" })
+        toast({ title: t(M.emailNotSentCopyLink), variant: "destructive" })
       } else {
-        toast({ title: "Приглашение создано, но письмо не отправлено и ссылка недоступна", variant: "destructive" })
+        toast({ title: t(M.inviteCreatedNoLink), variant: "destructive" })
       }
     } catch {
-      toast({ title: "Не удалось отправить приглашение", variant: "destructive" })
+      toast({ title: t(M.inviteErr), variant: "destructive" })
     } finally {
       setInviteLoading(false)
     }
@@ -73,21 +113,21 @@ export default function Users() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold text-foreground">Пользователи</h1>
+        <h1 className="text-xl font-semibold text-foreground">{t(M.title)}</h1>
         <Button onClick={() => setInviteOpen(true)}>
           <UserPlus className="h-4 w-4 mr-2" strokeWidth={2} />
-          Пригласить
+          {t(M.invite)}
         </Button>
       </div>
 
       <div className="glass">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-4 pb-3">
           <div>
-            <h2 className="text-[15px] font-semibold text-foreground">Учётные записи</h2>
-            <p className="text-xs text-muted-foreground">Доступ к панели управления</p>
+            <h2 className="text-[15px] font-semibold text-foreground">{t(M.accounts)}</h2>
+            <p className="text-xs text-muted-foreground">{t(M.accountsSub)}</p>
           </div>
           <Input
-            placeholder="Поиск по email..."
+            placeholder={t(M.searchEmail)}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="max-w-[240px]"
@@ -99,22 +139,22 @@ export default function Users() {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="px-5 text-xs font-medium text-muted-foreground">Имя</TableHead>
-              <TableHead className="px-5 text-xs font-medium text-muted-foreground">Email</TableHead>
-              <TableHead className="px-5 text-xs font-medium text-muted-foreground">Роль</TableHead>
-              <TableHead className="px-5 text-xs font-medium text-muted-foreground">Добавлен</TableHead>
+              <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.colName)}</TableHead>
+              <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.colEmail)}</TableHead>
+              <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.colRole)}</TableHead>
+              <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.colAdded)}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow className="hover:bg-transparent"><TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-8">Загрузка...</TableCell></TableRow>
+              <TableRow className="hover:bg-transparent"><TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-8">{t(M.loading)}</TableCell></TableRow>
             ) : users.length === 0 ? (
-              <TableRow className="hover:bg-transparent"><TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-8">Пользователей нет</TableCell></TableRow>
+              <TableRow className="hover:bg-transparent"><TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-8">{t(M.noUsers)}</TableCell></TableRow>
             ) : (() => {
               const q = query.trim().toLowerCase()
               const filtered = q ? users.filter((u) => u.email.toLowerCase().includes(q)) : users
               if (filtered.length === 0) {
-                return <TableRow className="hover:bg-transparent"><TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-8">Ничего не найдено</TableCell></TableRow>
+                return <TableRow className="hover:bg-transparent"><TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-8">{t(M.nothingFound)}</TableCell></TableRow>
               }
               return filtered.map((u) => (
               <TableRow key={u.id} className="hover:bg-transparent">
@@ -122,7 +162,7 @@ export default function Users() {
                 <TableCell className="px-5 py-3 text-[13px] text-soft">{u.email}</TableCell>
                 <TableCell className="px-5 py-3">
                   <Badge variant={u.role === "it_admin" ? "default" : "outline"}>
-                    {roleLabels[u.role] ?? u.role}
+                    {roleLabels[u.role] ? t(roleLabels[u.role]) : u.role}
                   </Badge>
                 </TableCell>
                 <TableCell className="px-5 py-3 text-xs text-muted-foreground tabular-nums">
@@ -138,11 +178,11 @@ export default function Users() {
       <Dialog open={inviteOpen} onOpenChange={(o) => { setInviteOpen(o); if (!o) { setInviteLink(null); setInviteEmail("") } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Пригласить пользователя</DialogTitle>
+            <DialogTitle>{t(M.inviteUser)}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleInvite} className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <Label className="text-soft">Email</Label>
+              <Label className="text-soft">{t(M.emailLabel)}</Label>
               <Input
                 type="email"
                 value={inviteEmail}
@@ -153,31 +193,31 @@ export default function Users() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-soft">Роль</Label>
+              <Label className="text-soft">{t(M.roleLabel)}</Label>
               <Select
                 value={inviteRole}
                 onChange={setInviteRole}
                 options={[
-                  { value: "it_admin", label: "IT-администратор" },
-                  { value: "viewer", label: "Наблюдатель" },
+                  { value: "it_admin", label: t(roleLabels.it_admin) },
+                  { value: "viewer", label: t(roleLabels.viewer) },
                 ]}
               />
             </div>
             {inviteLink && (
               <div className="space-y-1.5">
-                <Label className="text-soft">Ссылка-приглашение (передайте вручную)</Label>
+                <Label className="text-soft">{t(M.inviteLinkLabel)}</Label>
                 <Input readOnly value={inviteLink} onFocus={(e) => e.currentTarget.select()} />
                 <p className="text-xs text-muted-foreground">
-                  Письмо не отправлено (SMTP выключен или недоступен). Скопируйте ссылку и передайте пользователю.
+                  {t(M.inviteLinkHint)}
                 </p>
               </div>
             )}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setInviteOpen(false)}>
-                {inviteLink ? "Закрыть" : "Отмена"}
+                {inviteLink ? t(M.close) : t(M.cancel)}
               </Button>
               <Button type="submit" disabled={inviteLoading}>
-                {inviteLoading ? "Отправка..." : "Отправить приглашение"}
+                {inviteLoading ? t(M.sending) : t(M.sendInvite)}
               </Button>
             </div>
           </form>

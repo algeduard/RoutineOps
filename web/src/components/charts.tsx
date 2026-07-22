@@ -1,4 +1,9 @@
 import { useId } from "react"
+import { useT } from "@/lib/i18n"
+
+const M = {
+  noData: { ru: "нет данных", en: "No data" },
+}
 
 // Лёгкие самодельные SVG-графики для телеметрии — без внешних библиотек (бандл уже
 // >500КБ). preserveAspectRatio="none" растягивает под контейнер; штрихи держим
@@ -13,11 +18,12 @@ export function MiniAreaChart({ values, color, height = 44, max }: {
   height?: number
   max?: number
 }) {
+  const t = useT()
   const gid = useId()
   if (values.length === 0) {
     return (
       <div className="flex items-center justify-center text-xs text-muted-foreground" style={{ height }}>
-        нет данных
+        {t(M.noData)}
       </div>
     )
   }

@@ -8,17 +8,81 @@ import { Badge } from "@/components/ui/badge"
 import { Select } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "@/lib/toast"
+import { useT } from "@/lib/i18n"
+
+const M = {
+  colorAria: { ru: "Цвет {c}", en: "Color {c}" },
+  loadErr: { ru: "Не удалось загрузить данные", en: "Failed to load data" },
+  groupCreated: { ru: "Группа создана", en: "Group created" },
+  taskCreated: { ru: "Задача создана на {n} устройств", en: "Task created on {n} devices" },
+  loading: { ru: "Загрузка...", en: "Loading..." },
+  title: { ru: "Группы устройств", en: "Device groups" },
+  newGroup: { ru: "Новая группа", en: "New group" },
+  emptyState: {
+    ru: "Создайте группу, чтобы назначать политики и прогонять скрипты на устройства пачкой.",
+    en: "Create a group to assign policies and run scripts on devices in bulk.",
+  },
+  deleteGroup: { ru: "Удалить группу", en: "Delete group" },
+  groupStats: {
+    ru: "{devices} устройств · {policies} скрипт-политик · {rules} софт-правил",
+    en: "{devices} devices · {policies} script policies · {rules} software rules",
+  },
+  manage: { ru: "Управление", en: "Manage" },
+  runScript: { ru: "Прогнать скрипт", en: "Run script" },
+  newGroupTitle: { ru: "Новая группа устройств", en: "New device group" },
+  groupNameLabel: { ru: "Название группы", en: "Group name" },
+  groupNamePh: { ru: "MacBook-и бухгалтерии", en: "Accounting MacBooks" },
+  color: { ru: "Цвет", en: "Color" },
+  colorHint: {
+    ru: "Этим цветом будут обведены устройства группы в списке.",
+    en: "Devices in this group will be outlined with this color in the list.",
+  },
+  creating: { ru: "Создание...", en: "Creating..." },
+  create: { ru: "Создать", en: "Create" },
+  manageGroupTitle: { ru: "Управление группой: {name}", en: "Manage group: {name}" },
+  devices: { ru: "Устройства", en: "Devices" },
+  deviceFilterPh: { ru: "Фильтр: имя, IP, серийник...", en: "Filter: name, IP, serial..." },
+  remove: { ru: "Убрать", en: "Remove" },
+  add: { ru: "Добавить", en: "Add" },
+  noDevices: { ru: "Нет устройств", en: "No devices" },
+  nothingFound: { ru: "Ничего не найдено", en: "Nothing found" },
+  scriptPolicies: { ru: "Политики скриптов", en: "Script policies" },
+  unassign: { ru: "Снять", en: "Unassign" },
+  assign: { ru: "Назначить", en: "Assign" },
+  noScriptPolicies: { ru: "Нет политик скриптов", en: "No script policies" },
+  softwareRules: { ru: "Софт-правила", en: "Software rules" },
+  ruleForbidden: { ru: "Запрещено", en: "Forbidden" },
+  ruleAllowed: { ru: "Разрешено", en: "Allowed" },
+  removeRule: { ru: "Снять", en: "Remove" },
+  noSoftwareRules: { ru: "Нет софт-правил", en: "No software rules" },
+  softwareLabel: { ru: "ПО", en: "Software" },
+  typeLabel: { ru: "Тип", en: "Type" },
+  runScriptOnGroup: { ru: "Прогнать скрипт на группу", en: "Run script on group" },
+  scriptLabel: { ru: "Скрипт", en: "Script" },
+  selectScriptPh: { ru: "Выберите скрипт...", en: "Select a script..." },
+  priorityLabel: { ru: "Приоритет", en: "Priority" },
+  priorityLow: { ru: "Низкий", en: "Low" },
+  priorityMedium: { ru: "Средний", en: "Medium" },
+  priorityHigh: { ru: "Высокий", en: "High" },
+  runHint: {
+    ru: "Несовместимые по платформе устройства сервер пропустит автоматически.",
+    en: "The server will automatically skip devices incompatible by platform.",
+  },
+  running: { ru: "Запуск...", en: "Running..." },
+  run: { ru: "Запустить", en: "Run" },
+}
 
 // ColorPalette — выбор цвета группы. Цветом обводятся рамки её устройств в списке,
 // поэтому он часть создания группы, а не косметическая настройка «потом».
 function ColorPalette({ value, onChange }: { value: string; onChange: (c: string) => void }) {
+  const t = useT()
   return (
     <div className="flex flex-wrap gap-2">
       {GROUP_PALETTE.map((c) => (
         <button
           type="button"
           key={c}
-          aria-label={`Цвет ${c}`}
+          aria-label={t(M.colorAria, { c })}
           aria-pressed={value === c}
           onClick={() => onChange(c)}
           className={
@@ -33,6 +97,7 @@ function ColorPalette({ value, onChange }: { value: string; onChange: (c: string
 }
 
 export default function Groups() {
+  const t = useT()
   const [groups, setGroups] = useState<DeviceGroup[]>([])
   const [devices, setDevices] = useState<Device[]>([])
   const [scriptPolicies, setScriptPolicies] = useState<ScriptPolicy[]>([])
@@ -73,7 +138,7 @@ export default function Groups() {
       setScriptPolicies(sp.data ?? [])
       setScripts(s.data ?? [])
     } catch {
-      toast({ title: "Не удалось загрузить данные", variant: "destructive" })
+      toast({ title: t(M.loadErr), variant: "destructive" })
     } finally {
       setLoading(false)
     }
@@ -89,7 +154,7 @@ export default function Groups() {
       setGroupName("")
       setGroupColor(DEFAULT_GROUP_COLOR)
       await load()
-      toast({ title: "Группа создана", variant: "success" })
+      toast({ title: t(M.groupCreated), variant: "success" })
     } catch {
       // авто-тост интерсептора
     } finally {
@@ -190,7 +255,7 @@ export default function Groups() {
       })
       setRunGroupId(null)
       setRunForm({ script_id: "", priority: "medium" })
-      toast({ title: `Задача создана на ${res.data.created} устройств`, variant: "success" })
+      toast({ title: t(M.taskCreated, { n: res.data.created }), variant: "success" })
     } catch {
       // авто-тост интерсептора
     } finally {
@@ -209,22 +274,22 @@ export default function Groups() {
     : devices
 
   if (loading) {
-    return <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">Загрузка...</div>
+    return <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">{t(M.loading)}</div>
   }
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-foreground">Группы устройств</h1>
+        <h1 className="text-xl font-semibold text-foreground">{t(M.title)}</h1>
         <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-1.5" strokeWidth={2} />
-          Новая группа
+          {t(M.newGroup)}
         </Button>
       </div>
 
       {groups.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          Создайте группу, чтобы назначать политики и прогонять скрипты на устройства пачкой.
+          {t(M.emptyState)}
         </p>
       )}
 
@@ -243,13 +308,13 @@ export default function Groups() {
                   type="button"
                   onClick={() => handleDeleteGroup(g.id)}
                   className="text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
-                  aria-label="Удалить группу"
+                  aria-label={t(M.deleteGroup)}
                 >
                   <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
                 </button>
               </div>
               <p className="text-xs text-muted-foreground">
-                {g.device_ids.length} устройств · {g.policy_ids.length} скрипт-политик · {g.software_rules.length} софт-правил
+                {t(M.groupStats, { devices: g.device_ids.length, policies: g.policy_ids.length, rules: g.software_rules.length })}
               </p>
               <div className="flex gap-2">
                 <Button
@@ -258,7 +323,7 @@ export default function Groups() {
                   className="h-7 text-xs px-2"
                   onClick={() => setManageGroupId(g.id)}
                 >
-                  Управление
+                  {t(M.manage)}
                 </Button>
                 <Button
                   size="sm"
@@ -268,7 +333,7 @@ export default function Groups() {
                   disabled={scripts.length === 0 || g.device_ids.length === 0}
                 >
                   <Play className="h-3.5 w-3.5 mr-1" strokeWidth={2} />
-                  Прогнать скрипт
+                  {t(M.runScript)}
                 </Button>
               </div>
             </div>
@@ -280,26 +345,26 @@ export default function Groups() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Новая группа устройств</DialogTitle>
+            <DialogTitle>{t(M.newGroupTitle)}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <Label className="text-soft">Название группы</Label>
+              <Label className="text-soft">{t(M.groupNameLabel)}</Label>
               <Input
-                placeholder="MacBook-и бухгалтерии"
+                placeholder={t(M.groupNamePh)}
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-soft">Цвет</Label>
+              <Label className="text-soft">{t(M.color)}</Label>
               <ColorPalette value={groupColor} onChange={setGroupColor} />
               <p className="text-xs text-muted-foreground">
-                Этим цветом будут обведены устройства группы в списке.
+                {t(M.colorHint)}
               </p>
             </div>
             <Button className="w-full" onClick={handleCreateGroup} disabled={submitting || !groupName.trim()}>
-              {submitting ? "Создание..." : "Создать"}
+              {submitting ? t(M.creating) : t(M.create)}
             </Button>
           </div>
         </DialogContent>
@@ -309,13 +374,13 @@ export default function Groups() {
       <Dialog open={!!manageGroupId} onOpenChange={(o) => { if (!o) { setManageGroupId(null); setDeviceQuery("") } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Управление группой: {managedGroup?.name}</DialogTitle>
+            <DialogTitle>{t(M.manageGroupTitle, { name: managedGroup?.name ?? "" })}</DialogTitle>
           </DialogHeader>
           {managedGroup && (
             <div className="space-y-5 pt-2">
               {/* Цвет */}
               <div className="space-y-2">
-                <p className="text-sm font-medium text-foreground">Цвет</p>
+                <p className="text-sm font-medium text-foreground">{t(M.color)}</p>
                 <ColorPalette
                   value={managedGroup.color}
                   onChange={(c) => handleChangeColor(managedGroup.id, c)}
@@ -324,9 +389,9 @@ export default function Groups() {
 
               {/* Устройства */}
               <div className="space-y-2">
-                <p className="text-sm font-medium text-foreground">Устройства</p>
+                <p className="text-sm font-medium text-foreground">{t(M.devices)}</p>
                 <Input
-                  placeholder="Фильтр: имя, IP, серийник..."
+                  placeholder={t(M.deviceFilterPh)}
                   value={deviceQuery}
                   onChange={(e) => setDeviceQuery(e.target.value)}
                   className="h-8 text-sm"
@@ -346,14 +411,14 @@ export default function Groups() {
                             : handleAddDevice(managedGroup.id, d.id)
                           }
                         >
-                          {inGroup ? "Убрать" : "Добавить"}
+                          {inGroup ? t(M.remove) : t(M.add)}
                         </Button>
                       </div>
                     )
                   })}
                   {visibleDevices.length === 0 && (
                     <p className="text-xs text-muted-foreground">
-                      {devices.length === 0 ? "Нет устройств" : "Ничего не найдено"}
+                      {devices.length === 0 ? t(M.noDevices) : t(M.nothingFound)}
                     </p>
                   )}
                 </div>
@@ -361,7 +426,7 @@ export default function Groups() {
 
               {/* Скрипт-политики */}
               <div className="space-y-2">
-                <p className="text-sm font-medium text-foreground">Политики скриптов</p>
+                <p className="text-sm font-medium text-foreground">{t(M.scriptPolicies)}</p>
                 <div className="space-y-1 max-h-40 overflow-auto">
                   {scriptPolicies.map((p) => {
                     const assigned = managedGroup.policy_ids.includes(p.id)
@@ -377,12 +442,12 @@ export default function Groups() {
                             : handleAssignPolicy(managedGroup.id, p.id)
                           }
                         >
-                          {assigned ? "Снять" : "Назначить"}
+                          {assigned ? t(M.unassign) : t(M.assign)}
                         </Button>
                       </div>
                     )
                   })}
-                  {scriptPolicies.length === 0 && <p className="text-xs text-muted-foreground">Нет политик скриптов</p>}
+                  {scriptPolicies.length === 0 && <p className="text-xs text-muted-foreground">{t(M.noScriptPolicies)}</p>}
                 </div>
               </div>
 
@@ -390,7 +455,7 @@ export default function Groups() {
               <div className="space-y-2">
                 <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
                   <ShieldCheck className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
-                  Софт-правила
+                  {t(M.softwareRules)}
                 </p>
                 <div className="space-y-1 max-h-40 overflow-auto">
                   {managedGroup.software_rules.map((rule) => (
@@ -398,7 +463,7 @@ export default function Groups() {
                       <span className="flex items-center gap-2">
                         <span className="font-medium text-foreground">{rule.software_name}</span>
                         <Badge variant={rule.rule_type === "forbidden" ? "destructive" : "secondary"}>
-                          {rule.rule_type === "forbidden" ? "Запрещено" : "Разрешено"}
+                          {rule.rule_type === "forbidden" ? t(M.ruleForbidden) : t(M.ruleAllowed)}
                         </Badge>
                       </span>
                       <Button
@@ -407,17 +472,17 @@ export default function Groups() {
                         className="h-6 text-xs px-2"
                         onClick={() => handleRemoveSoftwareRule(managedGroup.id, rule.id)}
                       >
-                        Снять
+                        {t(M.removeRule)}
                       </Button>
                     </div>
                   ))}
                   {managedGroup.software_rules.length === 0 && (
-                    <p className="text-xs text-muted-foreground">Нет софт-правил</p>
+                    <p className="text-xs text-muted-foreground">{t(M.noSoftwareRules)}</p>
                   )}
                 </div>
                 <div className="flex items-end gap-2 pt-1">
                   <div className="flex-1 space-y-1">
-                    <Label className="text-xs text-soft">ПО</Label>
+                    <Label className="text-xs text-soft">{t(M.softwareLabel)}</Label>
                     <Input
                       placeholder="chrome.exe"
                       value={softwareForm.software_name}
@@ -425,13 +490,13 @@ export default function Groups() {
                     />
                   </div>
                   <div className="w-36 space-y-1">
-                    <Label className="text-xs text-soft">Тип</Label>
+                    <Label className="text-xs text-soft">{t(M.typeLabel)}</Label>
                     <Select
                       value={softwareForm.rule_type}
                       onChange={(v) => setSoftwareForm({ ...softwareForm, rule_type: v as "allowed" | "forbidden" })}
                       options={[
-                        { value: "forbidden", label: "Запрещено" },
-                        { value: "allowed", label: "Разрешено" },
+                        { value: "forbidden", label: t(M.ruleForbidden) },
+                        { value: "allowed", label: t(M.ruleAllowed) },
                       ]}
                     />
                   </div>
@@ -440,7 +505,7 @@ export default function Groups() {
                     onClick={() => handleAddSoftwareRule(managedGroup.id)}
                     disabled={submitting || !softwareForm.software_name.trim()}
                   >
-                    Добавить
+                    {t(M.add)}
                   </Button>
                 </div>
               </div>
@@ -453,35 +518,35 @@ export default function Groups() {
       <Dialog open={!!runGroupId} onOpenChange={(o) => !o && setRunGroupId(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Прогнать скрипт на группу</DialogTitle>
+            <DialogTitle>{t(M.runScriptOnGroup)}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <Label className="text-soft">Скрипт</Label>
+              <Label className="text-soft">{t(M.scriptLabel)}</Label>
               <Select
                 value={runForm.script_id}
                 onChange={(v) => setRunForm({ ...runForm, script_id: v })}
-                placeholder="Выберите скрипт..."
+                placeholder={t(M.selectScriptPh)}
                 options={scripts.map((s) => ({ value: s.id, label: `${s.name} (${s.platform})` }))}
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-soft">Приоритет</Label>
+              <Label className="text-soft">{t(M.priorityLabel)}</Label>
               <Select
                 value={runForm.priority}
                 onChange={(v) => setRunForm({ ...runForm, priority: v as typeof runForm.priority })}
                 options={[
-                  { value: "low", label: "Низкий" },
-                  { value: "medium", label: "Средний" },
-                  { value: "high", label: "Высокий" },
+                  { value: "low", label: t(M.priorityLow) },
+                  { value: "medium", label: t(M.priorityMedium) },
+                  { value: "high", label: t(M.priorityHigh) },
                 ]}
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Несовместимые по платформе устройства сервер пропустит автоматически.
+              {t(M.runHint)}
             </p>
             <Button className="w-full" onClick={handleRunScript} disabled={submitting || !runForm.script_id}>
-              {submitting ? "Запуск..." : "Запустить"}
+              {submitting ? t(M.running) : t(M.run)}
             </Button>
           </div>
         </DialogContent>

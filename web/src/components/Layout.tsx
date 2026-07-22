@@ -10,8 +10,53 @@ import api from "@/lib/api"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/lib/toast"
+import { useT } from "@/lib/i18n"
+import { LangSwitcher } from "@/components/LangSwitcher"
+
+const M = {
+  navOverview: { ru: "Обзор", en: "Overview" },
+  navAlerts: { ru: "Алерты", en: "Alerts" },
+  navHelp: { ru: "Обращения", en: "Help requests" },
+  navAudit: { ru: "Журнал", en: "Audit log" },
+  navDevices: { ru: "Устройства", en: "Devices" },
+  navEnrollment: { ru: "Энроллмент", en: "Enrollment" },
+  navGroups: { ru: "Группы", en: "Groups" },
+  navScripts: { ru: "Скрипты", en: "Scripts" },
+  navScriptPolicies: { ru: "Политики скриптов", en: "Script policies" },
+  navPolicies: { ru: "Политики", en: "Policies" },
+  navAccessRequests: { ru: "Заявки на права", en: "Access requests" },
+  navProfile: { ru: "Профиль", en: "Profile" },
+  navUsers: { ru: "Пользователи", en: "Users" },
+  navLicense: { ru: "Лицензия", en: "License" },
+  secHosts: { ru: "Хосты", en: "Hosts" },
+  secManagement: { ru: "Управление", en: "Management" },
+  secSettings: { ru: "Настройки", en: "Settings" },
+  roleAdmin: { ru: "Админ", en: "Admin" },
+  roleViewer: { ru: "Наблюдатель", en: "Viewer" },
+  themeLight: { ru: "Светлая тема", en: "Light theme" },
+  themeDark: { ru: "Тёмная тема", en: "Dark theme" },
+  tgConnected: { ru: "Telegram ✓", en: "Telegram ✓" },
+  tgConnect: { ru: "Подключить Telegram", en: "Connect Telegram" },
+  logout: { ru: "Выход", en: "Log out" },
+  tgTitle: { ru: "Telegram уведомления", en: "Telegram notifications" },
+  tgConnectedMsg: { ru: "Telegram подключён. Вы получаете уведомления.", en: "Telegram connected. You are receiving notifications." },
+  tgConnectMsg: {
+    ru: "Подключите Telegram, чтобы получать уведомления об алертах и заявках на права.",
+    en: "Connect Telegram to receive notifications about alerts and access requests.",
+  },
+  tgSendBotPre: { ru: "Отправьте боту", en: "Send the bot" },
+  tgSendBotPost: { ru: "команду:", en: "the command:" },
+  tgSendBotOrg: { ru: "Отправьте Telegram-боту вашей организации команду:", en: "Send your organization's Telegram bot the command:" },
+  tgTokenOnce: { ru: "Токен одноразовый. Если не сработал — сгенерируйте новый.", en: "The token is single-use. If it did not work, generate a new one." },
+  tgGenerating: { ru: "Генерация...", en: "Generating..." },
+  tgGenerateNew: { ru: "Сгенерировать новый токен", en: "Generate a new token" },
+  tgGet: { ru: "Получить токен", en: "Get a token" },
+  tgLoadErr: { ru: "Не удалось загрузить статус Telegram", en: "Failed to load Telegram status" },
+  tgGenErr: { ru: "Не удалось сгенерировать токен", en: "Failed to generate token" },
+}
 
 export default function Layout() {
+  const t = useT()
   const navigate = useNavigate()
   const location = useLocation()
   const { theme, toggleTheme } = useTheme()
@@ -67,7 +112,7 @@ export default function Layout() {
       setTgToken(r.data.link_token)
       setTgBotUsername(r.data.bot_username ?? "")
     } catch {
-      toast({ title: "Не удалось загрузить статус Telegram", variant: "destructive" })
+      toast({ title: t(M.tgLoadErr), variant: "destructive" })
     }
   }
 
@@ -77,7 +122,7 @@ export default function Layout() {
       const r = await api.post<{ token: string }>("/profile/telegram-link", {})
       setTgToken(r.data.token)
     } catch {
-      toast({ title: "Не удалось сгенерировать токен", variant: "destructive" })
+      toast({ title: t(M.tgGenErr), variant: "destructive" })
     } finally {
       setTgLoading(false)
     }
@@ -96,35 +141,35 @@ export default function Layout() {
     {
       title: null,
       items: [
-        { to: "/", label: "Обзор", icon: LayoutDashboard, badge: 0, adminOnly: false },
-        { to: "/alerts", label: "Алерты", icon: Bell, badge: 0, adminOnly: false },
-        { to: "/help-requests", label: "Обращения", icon: LifeBuoy, badge: helpCount, adminOnly: false },
-        { to: "/audit-log", label: "Журнал", icon: History, badge: 0, adminOnly: false },
+        { to: "/", label: t(M.navOverview), icon: LayoutDashboard, badge: 0, adminOnly: false },
+        { to: "/alerts", label: t(M.navAlerts), icon: Bell, badge: 0, adminOnly: false },
+        { to: "/help-requests", label: t(M.navHelp), icon: LifeBuoy, badge: helpCount, adminOnly: false },
+        { to: "/audit-log", label: t(M.navAudit), icon: History, badge: 0, adminOnly: false },
       ],
     },
     {
-      title: "Хосты",
+      title: t(M.secHosts),
       items: [
-        { to: "/devices", label: "Устройства", icon: Monitor, badge: 0, adminOnly: false },
-        { to: "/enrollment", label: "Энроллмент", icon: LogIn, badge: queueCount, adminOnly: true },
-        { to: "/groups", label: "Группы", icon: Boxes, badge: 0, adminOnly: true },
+        { to: "/devices", label: t(M.navDevices), icon: Monitor, badge: 0, adminOnly: false },
+        { to: "/enrollment", label: t(M.navEnrollment), icon: LogIn, badge: queueCount, adminOnly: true },
+        { to: "/groups", label: t(M.navGroups), icon: Boxes, badge: 0, adminOnly: true },
       ],
     },
     {
-      title: "Управление",
+      title: t(M.secManagement),
       items: [
-        { to: "/scripts", label: "Скрипты", icon: FileCode2, badge: 0, adminOnly: true },
-        { to: "/script-policies", label: "Политики скриптов", icon: ListChecks, badge: 0, adminOnly: true },
-        { to: "/policies", label: "Политики", icon: Shield, badge: 0, adminOnly: true },
-        { to: "/admin-access", label: "Заявки на права", icon: KeyRound, badge: pendingCount, adminOnly: true },
+        { to: "/scripts", label: t(M.navScripts), icon: FileCode2, badge: 0, adminOnly: true },
+        { to: "/script-policies", label: t(M.navScriptPolicies), icon: ListChecks, badge: 0, adminOnly: true },
+        { to: "/policies", label: t(M.navPolicies), icon: Shield, badge: 0, adminOnly: true },
+        { to: "/admin-access", label: t(M.navAccessRequests), icon: KeyRound, badge: pendingCount, adminOnly: true },
       ],
     },
     {
-      title: "Настройки",
+      title: t(M.secSettings),
       items: [
-        { to: "/profile", label: "Профиль", icon: UserCircle, badge: 0, adminOnly: false },
-        { to: "/users", label: "Пользователи", icon: Users, badge: 0, adminOnly: true },
-        { to: "/license", label: "Лицензия", icon: BadgeCheck, badge: 0, adminOnly: true },
+        { to: "/profile", label: t(M.navProfile), icon: UserCircle, badge: 0, adminOnly: false },
+        { to: "/users", label: t(M.navUsers), icon: Users, badge: 0, adminOnly: true },
+        { to: "/license", label: t(M.navLicense), icon: BadgeCheck, badge: 0, adminOnly: true },
       ],
     },
   ]
@@ -193,26 +238,29 @@ export default function Layout() {
         <div className="p-2.5 border-t border-[var(--sidebar-border)] flex flex-col gap-0.5">
           {me && (
             <div className="px-3 pb-1 text-[11px] text-muted-foreground truncate">
-              {me.role === "it_admin" ? "Админ" : "Наблюдатель"}
+              {me.role === "it_admin" ? t(M.roleAdmin) : t(M.roleViewer)}
             </div>
           )}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="nav-item text-muted-foreground w-full"
-          >
-            {theme === "dark"
-              ? <Sun className="h-[17px] w-[17px]" />
-              : <Moon className="h-[17px] w-[17px]" />}
-            {theme === "dark" ? "Светлая тема" : "Тёмная тема"}
-          </button>
+          <div className="flex items-center justify-between gap-2 px-3 py-1">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="inline-flex items-center gap-2 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {theme === "dark"
+                ? <Sun className="h-[17px] w-[17px]" />
+                : <Moon className="h-[17px] w-[17px]" />}
+              {theme === "dark" ? t(M.themeLight) : t(M.themeDark)}
+            </button>
+            <LangSwitcher />
+          </div>
           <button
             type="button"
             onClick={openTelegramDialog}
             className="nav-item text-muted-foreground w-full"
           >
             <Send className="h-[17px] w-[17px]" />
-            {tgLinked ? "Telegram ✓" : "Подключить Telegram"}
+            {tgLinked ? t(M.tgConnected) : t(M.tgConnect)}
           </button>
           <button
             type="button"
@@ -228,14 +276,14 @@ export default function Layout() {
       <Dialog open={tgOpen} onOpenChange={setTgOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Telegram уведомления</DialogTitle>
+            <DialogTitle>{t(M.tgTitle)}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-1">
             {tgLinked ? (
-              <p className="text-sm text-green-700 dark:text-green-400">Telegram подключён. Вы получаете уведомления.</p>
+              <p className="text-sm text-green-700 dark:text-green-400">{t(M.tgConnectedMsg)}</p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Подключите Telegram, чтобы получать уведомления об алертах и заявках на права.
+                {t(M.tgConnectMsg)}
               </p>
             )}
             {tgToken ? (
@@ -243,7 +291,7 @@ export default function Layout() {
                 <p className="text-sm">
                   {tgBotUsername ? (
                     <>
-                      Отправьте боту{" "}
+                      {t(M.tgSendBotPre)}{" "}
                       <a
                         href={`https://t.me/${tgBotUsername}`}
                         target="_blank"
@@ -252,20 +300,20 @@ export default function Layout() {
                       >
                         @{tgBotUsername}
                       </a>{" "}
-                      команду:
+                      {t(M.tgSendBotPost)}
                     </>
                   ) : (
-                    <>Отправьте Telegram-боту вашей организации команду:</>
+                    <>{t(M.tgSendBotOrg)}</>
                   )}
                 </p>
                 <code className="block rounded-md border border-border bg-muted px-3 py-2.5 text-sm select-all break-all font-mono">
                   /start {tgToken}
                 </code>
-                <p className="text-xs text-muted-foreground">Токен одноразовый. Если не сработал — сгенерируйте новый.</p>
+                <p className="text-xs text-muted-foreground">{t(M.tgTokenOnce)}</p>
               </div>
             ) : null}
             <Button variant="outline" className="w-full" onClick={generateToken} disabled={tgLoading}>
-              {tgLoading ? "Генерация..." : tgToken ? "Сгенерировать новый токен" : "Получить токен"}
+              {tgLoading ? t(M.tgGenerating) : tgToken ? t(M.tgGenerateNew) : t(M.tgGet)}
             </Button>
           </div>
         </DialogContent>

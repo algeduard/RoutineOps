@@ -5,6 +5,7 @@ import api, { Device, Script, PolicyRule, Alert, DEVICE_STATUS } from "@/lib/api
 import { formatDistanceToNow } from "@/lib/time"
 import { toast } from "@/lib/toast"
 import SpotlightCard from "@/components/SpotlightCard"
+import { useT, type Msg } from "@/lib/i18n"
 
 interface AuditEntry {
   id: string
@@ -19,64 +20,64 @@ const ONLINE_THRESHOLD_MS = 5 * 60 * 1000
 // Счётчик читается «Активных: 12», а бейдж на карточке — «Активен». Одна карта на оба
 // падежа звучала бы криво в одном из мест, поэтому здесь только форма для счётчиков;
 // цвет и порядок по-прежнему берутся из общей DEVICE_STATUS.
-const STATUS_PLURAL: Record<string, string> = {
-  active:           "Активных",
-  enrolled:         "Зарегистрированных",
-  pending:          "Ожидающих",
-  pending_approval: "Ожидают одобрения",
-  rejected:         "Отклонённых",
-  blocked:          "Заблокированных",
-  decommissioned:   "Выведенных из эксплуатации",
+const STATUS_PLURAL: Record<string, Msg> = {
+  active:           { ru: "Активных", en: "Active" },
+  enrolled:         { ru: "Зарегистрированных", en: "Enrolled" },
+  pending:          { ru: "Ожидающих", en: "Pending" },
+  pending_approval: { ru: "Ожидают одобрения", en: "Pending approval" },
+  rejected:         { ru: "Отклонённых", en: "Rejected" },
+  blocked:          { ru: "Заблокированных", en: "Blocked" },
+  decommissioned:   { ru: "Выведенных из эксплуатации", en: "Decommissioned" },
 }
 
-const ACTION_LABELS: Record<string, string> = {
-  block_device:          "заблокировал устройство",
-  unblock_device:        "разблокировал устройство",
-  approve_admin_request: "одобрил заявку на права",
-  reject_admin_request:  "отклонил заявку на права",
-  revoke_admin_request:  "отозвал права",
-  create_device:         "добавил устройство",
-  delete_device:         "удалил устройство",
-  approve_device:        "одобрил устройство",
-  reject_device:         "отклонил устройство",
-  approve_pending_bulk:  "одобрил очередь энроллмента",
-  reject_pending_bulk:   "отклонил очередь энроллмента",
-  create_bulk_token:     "выпустил массовый токен",
-  decommission_device:   "вывел устройство из эксплуатации",
-  create_api_token:      "выпустил API-токен",
-  revoke_api_token:      "отозвал API-токен",
-  reenroll_device:       "перерегистрировал устройство",
-  lock_device:           "заблокировал экран устройства",
-  unlock_device:         "разблокировал экран устройства",
-  create_script:         "создал скрипт",
-  update_script:         "изменил скрипт",
-  delete_script:         "удалил скрипт",
-  create_policy:         "создал политику",
-  delete_policy:         "удалил политику",
-  run_script:            "запустил скрипт",
-  run_script_on_group:   "запустил скрипт на группе",
-  create_script_policy:  "создал скрипт-политику",
-  delete_script_policy:  "удалил скрипт-политику",
-  enable_script_policy:  "включил скрипт-политику",
-  disable_script_policy: "выключил скрипт-политику",
-  acknowledge_alert:     "подтвердил алерт",
-  login:                 "вошёл в систему",
-  logout:                "вышел из системы",
-  login_failed:          "неудачная попытка входа",
-  change_password:       "сменил пароль",
-  password_reset_requested: "запросил сброс пароля",
-  password_reset:        "сбросил пароль",
-  invite_user:           "пригласил пользователя",
-  accept_invite:         "принял приглашение",
-  create_device_group:   "создал группу устройств",
-  update_device_group:   "изменил группу устройств",
-  delete_device_group:   "удалил группу устройств",
-  add_device_to_group:   "добавил устройство в группу",
-  remove_device_from_group: "убрал устройство из группы",
-  assign_policy_to_group:   "назначил группе политику",
-  unassign_policy_from_group: "снял с группы политику",
-  assign_software_policy_to_group:   "назначил группе политику ПО",
-  unassign_software_policy_from_group: "снял с группы политику ПО",
+const ACTION_LABELS: Record<string, Msg> = {
+  block_device:          { ru: "заблокировал устройство", en: "blocked a device" },
+  unblock_device:        { ru: "разблокировал устройство", en: "unblocked a device" },
+  approve_admin_request: { ru: "одобрил заявку на права", en: "approved an access request" },
+  reject_admin_request:  { ru: "отклонил заявку на права", en: "rejected an access request" },
+  revoke_admin_request:  { ru: "отозвал права", en: "revoked access" },
+  create_device:         { ru: "добавил устройство", en: "added a device" },
+  delete_device:         { ru: "удалил устройство", en: "deleted a device" },
+  approve_device:        { ru: "одобрил устройство", en: "approved a device" },
+  reject_device:         { ru: "отклонил устройство", en: "rejected a device" },
+  approve_pending_bulk:  { ru: "одобрил очередь энроллмента", en: "approved the enrollment queue" },
+  reject_pending_bulk:   { ru: "отклонил очередь энроллмента", en: "rejected the enrollment queue" },
+  create_bulk_token:     { ru: "выпустил массовый токен", en: "issued a bulk token" },
+  decommission_device:   { ru: "вывел устройство из эксплуатации", en: "decommissioned a device" },
+  create_api_token:      { ru: "выпустил API-токен", en: "issued an API token" },
+  revoke_api_token:      { ru: "отозвал API-токен", en: "revoked an API token" },
+  reenroll_device:       { ru: "перерегистрировал устройство", en: "re-enrolled a device" },
+  lock_device:           { ru: "заблокировал экран устройства", en: "locked a device screen" },
+  unlock_device:         { ru: "разблокировал экран устройства", en: "unlocked a device screen" },
+  create_script:         { ru: "создал скрипт", en: "created a script" },
+  update_script:         { ru: "изменил скрипт", en: "updated a script" },
+  delete_script:         { ru: "удалил скрипт", en: "deleted a script" },
+  create_policy:         { ru: "создал политику", en: "created a policy" },
+  delete_policy:         { ru: "удалил политику", en: "deleted a policy" },
+  run_script:            { ru: "запустил скрипт", en: "ran a script" },
+  run_script_on_group:   { ru: "запустил скрипт на группе", en: "ran a script on a group" },
+  create_script_policy:  { ru: "создал скрипт-политику", en: "created a script policy" },
+  delete_script_policy:  { ru: "удалил скрипт-политику", en: "deleted a script policy" },
+  enable_script_policy:  { ru: "включил скрипт-политику", en: "enabled a script policy" },
+  disable_script_policy: { ru: "выключил скрипт-политику", en: "disabled a script policy" },
+  acknowledge_alert:     { ru: "подтвердил алерт", en: "acknowledged an alert" },
+  login:                 { ru: "вошёл в систему", en: "signed in" },
+  logout:                { ru: "вышел из системы", en: "signed out" },
+  login_failed:          { ru: "неудачная попытка входа", en: "failed sign-in attempt" },
+  change_password:       { ru: "сменил пароль", en: "changed password" },
+  password_reset_requested: { ru: "запросил сброс пароля", en: "requested a password reset" },
+  password_reset:        { ru: "сбросил пароль", en: "reset password" },
+  invite_user:           { ru: "пригласил пользователя", en: "invited a user" },
+  accept_invite:         { ru: "принял приглашение", en: "accepted an invitation" },
+  create_device_group:   { ru: "создал группу устройств", en: "created a device group" },
+  update_device_group:   { ru: "изменил группу устройств", en: "updated a device group" },
+  delete_device_group:   { ru: "удалил группу устройств", en: "deleted a device group" },
+  add_device_to_group:   { ru: "добавил устройство в группу", en: "added a device to a group" },
+  remove_device_from_group: { ru: "убрал устройство из группы", en: "removed a device from a group" },
+  assign_policy_to_group:   { ru: "назначил группе политику", en: "assigned a policy to a group" },
+  unassign_policy_from_group: { ru: "снял с группы политику", en: "unassigned a policy from a group" },
+  assign_software_policy_to_group:   { ru: "назначил группе политику ПО", en: "assigned a software policy to a group" },
+  unassign_software_policy_from_group: { ru: "снял с группы политику ПО", en: "unassigned a software policy from a group" },
 }
 
 // Таксономия событий ленты: security должно цепляться взглядом сразу,
@@ -154,7 +155,38 @@ function osFamily(os: string): "macOS" | "Windows" | "Linux" {
 }
 
 
+const M = {
+  loadError: { ru: "Не удалось загрузить данные", en: "Failed to load data" },
+  loading: { ru: "Загрузка...", en: "Loading..." },
+  title: { ru: "Обзор", en: "Overview" },
+  statDevices: { ru: "Всего устройств", en: "Total devices" },
+  statScripts: { ru: "Скриптов", en: "Scripts" },
+  statPolicies: { ru: "Политик", en: "Policies" },
+  statAlerts: { ru: "Алертов", en: "Alerts" },
+  online: { ru: "{n} онлайн", en: "{n} online" },
+  inLibrary: { ru: "в библиотеке", en: "in library" },
+  softwareRules: { ru: "правил ПО", en: "software rules" },
+  unacknowledged: { ru: "неподтверждённых", en: "unacknowledged" },
+  ctaAddDevice: { ru: "Подключить устройство", en: "Connect a device" },
+  ctaAddScript: { ru: "Добавить скрипт", en: "Add a script" },
+  ctaAddPolicy: { ru: "Добавить политику", en: "Add a policy" },
+  devicesByOs: { ru: "Устройства по ОС", en: "Devices by OS" },
+  totalN: { ru: "Всего {n}", en: "Total {n}" },
+  noData: { ru: "Нет данных", en: "No data" },
+  statuses: { ru: "Статусы", en: "Statuses" },
+  fleetDistribution: { ru: "Распределение парка", en: "Fleet distribution" },
+  noDevices: { ru: "Нет устройств", en: "No devices" },
+  activity: { ru: "Активность", en: "Activity" },
+  recentEvents: { ru: "Последние события", en: "Recent events" },
+  allEvents: { ru: "Все события", en: "All events" },
+  noEvents: { ru: "Нет событий", en: "No events" },
+  recentDevices: { ru: "Последние устройства", en: "Recent devices" },
+  recentlyOnline: { ru: "Недавно на связи", en: "Recently online" },
+  allDevices: { ru: "Все устройства", en: "All devices" },
+}
+
 export default function Dashboard() {
+  const t = useT()
   const navigate = useNavigate()
   const [devices, setDevices]   = useState<Device[]>([])
   const [scripts, setScripts]   = useState<Script[]>([])
@@ -180,7 +212,7 @@ export default function Dashboard() {
       setAlerts(al.data ?? [])
     }).catch(() => {
       setLoadFailed(true)
-      toast({ title: "Не удалось загрузить данные", variant: "destructive" })
+      toast({ title: t(M.loadError), variant: "destructive" })
     }).finally(() => setLoading(false))
   }, [])
 
@@ -197,7 +229,7 @@ export default function Dashboard() {
   const statusRows = Object.entries(statusCounts)
     .sort((a, b) => statusOrder.indexOf(a[0]) - statusOrder.indexOf(b[0]))
     .map(([status, count]) => ({
-      label: STATUS_PLURAL[status] ?? DEVICE_STATUS[status as keyof typeof DEVICE_STATUS]?.label ?? status,
+      label: STATUS_PLURAL[status] ? t(STATUS_PLURAL[status]) : (DEVICE_STATUS[status as keyof typeof DEVICE_STATUS]?.label ?? status),
       dot: DEVICE_STATUS[status as keyof typeof DEVICE_STATUS]?.dot ?? "bg-muted-foreground/40",
       count,
     }))
@@ -217,12 +249,12 @@ export default function Dashboard() {
   const totalDevices = Math.max(devices.length, 1)
 
   if (loading) {
-    return <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">Загрузка...</div>
+    return <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">{t(M.loading)}</div>
   }
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="text-xl font-semibold text-foreground">Обзор</h1>
+      <h1 className="text-xl font-semibold text-foreground">{t(M.title)}</h1>
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -230,10 +262,10 @@ export default function Dashboard() {
             (красно-оранжевая колонка и цифра). Нулевые счётчики превращаем в CTA —
             три нуля подряд читаются как «заброшенный продукт». */}
         {[
-          { label: "Всего устройств", value: devices.length, icon: Monitor,   sub: `${online} онлайн`, cta: "Подключить устройство", onClick: () => navigate("/devices")  },
-          { label: "Скриптов",        value: scripts.length,  icon: FileCode2, sub: "в библиотеке",     cta: "Добавить скрипт",       onClick: () => navigate("/scripts")  },
-          { label: "Политик",         value: policies.length, icon: Shield,    sub: "правил ПО",        cta: "Добавить политику",     onClick: () => navigate("/policies") },
-          { label: "Алертов",         value: unackedAlerts,   icon: Bell,      sub: "неподтверждённых", cta: "",                      onClick: () => navigate("/alerts"), alert: true },
+          { label: t(M.statDevices), value: devices.length, icon: Monitor,   sub: t(M.online, { n: online }), cta: t(M.ctaAddDevice), onClick: () => navigate("/devices")  },
+          { label: t(M.statScripts),        value: scripts.length,  icon: FileCode2, sub: t(M.inLibrary),     cta: t(M.ctaAddScript),       onClick: () => navigate("/scripts")  },
+          { label: t(M.statPolicies),         value: policies.length, icon: Shield,    sub: t(M.softwareRules),        cta: t(M.ctaAddPolicy),     onClick: () => navigate("/policies") },
+          { label: t(M.statAlerts),         value: unackedAlerts,   icon: Bell,      sub: t(M.unacknowledged), cta: "",                      onClick: () => navigate("/alerts"), alert: true },
         ].map(({ label, value, icon: Icon, sub, cta, onClick, alert }) => (
           <SpotlightCard
             as="button"
@@ -269,10 +301,10 @@ export default function Dashboard() {
         {/* Left: Devices by OS + status breakdown */}
         <div className="flex flex-col gap-5">
           <div className="glass px-5 py-[18px]">
-            <h2 className="text-[15px] font-semibold text-foreground">Устройства по ОС</h2>
-            <p className="text-xs text-muted-foreground mb-4">Всего {devices.length}</p>
+            <h2 className="text-[15px] font-semibold text-foreground">{t(M.devicesByOs)}</h2>
+            <p className="text-xs text-muted-foreground mb-4">{t(M.totalN, { n: devices.length })}</p>
             {osEntries.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Нет данных</p>
+              <p className="text-xs text-muted-foreground">{t(M.noData)}</p>
             ) : (
               <div className="flex flex-col gap-3.5">
                 {osEntries.map(([os, count]) => (
@@ -300,11 +332,11 @@ export default function Dashboard() {
 
           {/* Status breakdown */}
           <div className="glass px-5 py-[18px]">
-            <h2 className="text-[15px] font-semibold text-foreground">Статусы</h2>
-            <p className="text-xs text-muted-foreground mb-3.5">Распределение парка</p>
+            <h2 className="text-[15px] font-semibold text-foreground">{t(M.statuses)}</h2>
+            <p className="text-xs text-muted-foreground mb-3.5">{t(M.fleetDistribution)}</p>
             <div className="flex flex-col gap-2.5">
               {statusRows.length === 0 && (
-                <p className="text-xs text-muted-foreground">Нет устройств</p>
+                <p className="text-xs text-muted-foreground">{t(M.noDevices)}</p>
               )}
               {statusRows.map(({ label, count, dot }) => (
                 <div key={label} className="flex items-center justify-between">
@@ -323,20 +355,20 @@ export default function Dashboard() {
         <div className="glass flex flex-col">
           <div className="flex items-center justify-between px-5 pt-4 pb-3">
             <div>
-              <h2 className="text-[15px] font-semibold text-foreground">Активность</h2>
-              <p className="text-xs text-muted-foreground">Последние события</p>
+              <h2 className="text-[15px] font-semibold text-foreground">{t(M.activity)}</h2>
+              <p className="text-xs text-muted-foreground">{t(M.recentEvents)}</p>
             </div>
             <button
               type="button"
               onClick={() => navigate("/audit-log")}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              Все события <ChevronRight className="h-3.5 w-3.5" />
+              {t(M.allEvents)} <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
           <div>
             {activity.length === 0 && (
-              <p className="text-xs text-muted-foreground px-5 py-6 text-center">Нет событий</p>
+              <p className="text-xs text-muted-foreground px-5 py-6 text-center">{t(M.noEvents)}</p>
             )}
             {activity.map((e, i) => {
               const cat = ACTION_CATEGORY[e.action] ?? "content"
@@ -357,7 +389,7 @@ export default function Dashboard() {
                       <span className="font-medium text-foreground">{e.user_email}</span>
                       {" "}
                       <span className={cat === "security" ? fg : "text-muted-foreground"}>
-                        {ACTION_LABELS[e.action] ?? e.action}
+                        {ACTION_LABELS[e.action] ? t(ACTION_LABELS[e.action]) : e.action}
                       </span>
                     </p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">{formatDistanceToNow(e.created_at)}</p>
@@ -373,20 +405,20 @@ export default function Dashboard() {
       <div className="glass">
         <div className="flex items-center justify-between px-5 pt-4 pb-3">
           <div>
-            <h2 className="text-[15px] font-semibold text-foreground">Последние устройства</h2>
-            <p className="text-xs text-muted-foreground">Недавно на связи</p>
+            <h2 className="text-[15px] font-semibold text-foreground">{t(M.recentDevices)}</h2>
+            <p className="text-xs text-muted-foreground">{t(M.recentlyOnline)}</p>
           </div>
           <button
             type="button"
             onClick={() => navigate("/devices")}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            Все устройства <ChevronRight className="h-3.5 w-3.5" />
+            {t(M.allDevices)} <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
         <div>
           {devices.length === 0 && (
-            <p className="text-xs text-muted-foreground px-5 py-6 text-center">Нет устройств</p>
+            <p className="text-xs text-muted-foreground px-5 py-6 text-center">{t(M.noDevices)}</p>
           )}
           {devices.slice(0, 5).map((d) => {
             // Фолбэк не декоративный: без него неизвестный статус давал className

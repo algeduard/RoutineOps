@@ -12,6 +12,34 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { formatDistanceToNow } from "@/lib/time"
 import { useMe } from "@/lib/useMe"
+import { useT, type Msg } from "@/lib/i18n"
+
+const M = {
+  online: { ru: "Онлайн", en: "Online" },
+  offline: { ru: "Офлайн", en: "Offline" },
+  extIp: { ru: "Внешний IP", en: "External IP" },
+  loading: { ru: "Загрузка...", en: "Loading..." },
+  title: { ru: "Устройства", en: "Devices" },
+  addDevice: { ru: "Добавить устройство", en: "Add device" },
+  deviceCreated: { ru: "Устройство создано", en: "Device created" },
+  osLabel: { ru: "ОС", en: "OS" },
+  creating: { ru: "Создание...", en: "Creating..." },
+  create: { ru: "Создать", en: "Create" },
+  runOnTarget: { ru: "Запустите на целевой машине. Токен действует 24ч.", en: "Run this on the target machine. The token is valid for 24h." },
+  downloadMsi: { ru: "Скачать MSI (Windows)", en: "Download MSI (Windows)" },
+  downloadPkg: { ru: "Скачать PKG (macOS)", en: "Download PKG (macOS)" },
+  downloadInstaller: { ru: "Скачать установщик (.sh)", en: "Download installer (.sh)" },
+  done: { ru: "Готово", en: "Done" },
+  searchPlaceholder: { ru: "Поиск: имя, IP, MAC, серийник, ОС, CPU...", en: "Search: name, IP, MAC, serial, OS, CPU..." },
+  allDevices: { ru: "Все устройства", en: "All devices" },
+  colDevice: { ru: "Устройство", en: "Device" },
+  colGroup: { ru: "Группа", en: "Group" },
+  colStatus: { ru: "Статус", en: "Status" },
+  colAgent: { ru: "Агент", en: "Agent" },
+  colLastSeen: { ru: "Последний раз", en: "Last seen" },
+  nothingFound: { ru: "Ничего не найдено", en: "Nothing found" },
+  noDevices: { ru: "Нет устройств", en: "No devices" },
+}
 
 type DialogStep = "form" | "token"
 
@@ -25,12 +53,13 @@ function isOnline(device: Device): boolean {
 }
 
 function OnlineBadge({ device }: { device: Device }) {
+  const t = useT()
   const online = isOnline(device)
   return (
     <span className="flex items-center gap-1.5">
       <span className={`h-2 w-2 rounded-full flex-shrink-0 ${online ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
       <span className={`text-[13px] ${online ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
-        {online ? "Онлайн" : "Офлайн"}
+        {online ? t(M.online) : t(M.offline)}
       </span>
     </span>
   )
@@ -41,7 +70,7 @@ const stripSeparators = (s: string) => s.replace(/[:\-. ]/g, "")
 // matchHint объясняет, ПОЧЕМУ устройство попало в выдачу, когда совпал атрибут,
 // которого нет в таблице (серийник, MAC, внешний IP). Иначе поиск по хвосту
 // серийника выглядит как случайная строка.
-function matchHint(d: Device, query: string): string | null {
+function matchHint(d: Device, query: string, t: (m: Msg) => string): string | null {
   const q = query.trim().toLowerCase()
   if (!q) return null
 
@@ -57,7 +86,7 @@ function matchHint(d: Device, query: string): string | null {
 
   if (hits(d.serial_number)) return `S/N ${d.serial_number}`
   if (hits(d.mac_address)) return `MAC ${d.mac_address}`
-  if (hits(d.public_ip)) return `Внешний IP ${d.public_ip}`
+  if (hits(d.public_ip)) return `${t(M.extIp)} ${d.public_ip}`
   return null
 }
 
@@ -92,6 +121,7 @@ export default function Devices() {
   const [query, setQuery] = useState("")
   const navigate = useNavigate()
   const { isAdmin } = useMe()
+  const t = useT()
   // Счётчик запросов: медленный ответ по старому запросу не должен затирать свежий.
   const reqSeq = useRef(0)
 
@@ -127,8 +157,8 @@ export default function Devices() {
 
   // обновляем онлайн-индикатор каждые 30 секунд без перезапроса API
   useEffect(() => {
-    const t = setInterval(() => setDevices((d) => [...d]), 30_000)
-    return () => clearInterval(t)
+    const iv = setInterval(() => setDevices((d) => [...d]), 30_000)
+    return () => clearInterval(iv)
   }, [])
 
   function resetDialog() {
@@ -191,7 +221,7 @@ export default function Devices() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  if (loading) return <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">Загрузка...</div>
+  if (loading) return <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">{t(M.loading)}</div>
 
   const searching = query.trim() !== ""
   const filtering = searching || groupId !== ALL_GROUPS
@@ -204,21 +234,21 @@ export default function Devices() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-foreground">Устройства</h1>
+        <h1 className="text-xl font-semibold text-foreground">{t(M.title)}</h1>
         {isAdmin && (
         <Dialog open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if (!o) resetDialog() }}>
           <DialogTrigger asChild>
-            <Button size="sm">Добавить устройство</Button>
+            <Button size="sm">{t(M.addDevice)}</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{step === "form" ? "Добавить устройство" : "Устройство создано"}</DialogTitle>
+              <DialogTitle>{step === "form" ? t(M.addDevice) : t(M.deviceCreated)}</DialogTitle>
             </DialogHeader>
 
             {step === "form" && (
               <div className="space-y-4 pt-2">
                 <div className="space-y-1.5">
-                  <Label>ОС</Label>
+                  <Label>{t(M.osLabel)}</Label>
                   <Select
                     value={os}
                     onChange={setOs}
@@ -230,7 +260,7 @@ export default function Devices() {
                   />
                 </div>
                 <Button className="w-full" onClick={createDevice} disabled={creating}>
-                  {creating ? "Создание..." : "Создать"}
+                  {creating ? t(M.creating) : t(M.create)}
                 </Button>
               </div>
             )}
@@ -238,7 +268,7 @@ export default function Devices() {
             {step === "token" && result && (
               <div className="space-y-4 pt-2">
                 <p className="text-sm text-muted-foreground">
-                  Запустите на целевой машине. Токен действует 24ч.
+                  {t(M.runOnTarget)}
                 </p>
                 <div className="relative">
                   <pre className="rounded-md border border-border bg-muted px-3 py-3 text-xs font-mono text-soft break-all whitespace-pre-wrap pr-10">
@@ -258,11 +288,11 @@ export default function Devices() {
                 </div>
                 {result.device.os === "windows" ? (
                   <a href={`${apiBase()}/downloads/RoutineOps-agent.msi`} download className="block">
-                    <Button variant="outline" className="w-full">Скачать MSI (Windows)</Button>
+                    <Button variant="outline" className="w-full">{t(M.downloadMsi)}</Button>
                   </a>
                 ) : result.device.os === "darwin" ? (
                   <a href={`${apiBase()}/downloads/RoutineOps-agent.pkg`} download className="block">
-                    <Button variant="outline" className="w-full">Скачать PKG (macOS)</Button>
+                    <Button variant="outline" className="w-full">{t(M.downloadPkg)}</Button>
                   </a>
                 ) : (
                   <div className="flex gap-2 items-center">
@@ -279,12 +309,12 @@ export default function Devices() {
                       download
                       className="flex-1"
                     >
-                      <Button variant="outline" className="w-full">Скачать установщик (.sh)</Button>
+                      <Button variant="outline" className="w-full">{t(M.downloadInstaller)}</Button>
                     </a>
                   </div>
                 )}
                 <Button className="w-full" variant="outline" onClick={() => { setDialogOpen(false); resetDialog() }}>
-                  Готово
+                  {t(M.done)}
                 </Button>
               </div>
             )}
@@ -298,7 +328,7 @@ export default function Devices() {
           за скругление), а он обрезал бы выпадашку Select'а. */}
       <div className="glass flex flex-wrap items-center gap-3 px-5 py-4">
         <Input
-          placeholder="Поиск: имя, IP, MAC, серийник, ОС, CPU..."
+          placeholder={t(M.searchPlaceholder)}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="max-w-sm"
@@ -308,7 +338,7 @@ export default function Devices() {
           onChange={setGroupId}
           className="w-56"
           options={[
-            { value: ALL_GROUPS, label: "Все устройства" },
+            { value: ALL_GROUPS, label: t(M.allDevices) },
             ...groups.map((g) => ({ value: g.id, label: g.name })),
           ]}
         />
@@ -318,24 +348,24 @@ export default function Devices() {
         <Table>
           <TableHeader>
             <TableRow className="border-t-0 hover:bg-transparent">
-              <TableHead className="text-xs">Устройство</TableHead>
-              <TableHead className="text-xs">Группа</TableHead>
+              <TableHead className="text-xs">{t(M.colDevice)}</TableHead>
+              <TableHead className="text-xs">{t(M.colGroup)}</TableHead>
               <TableHead className="text-xs">IP</TableHead>
-              <TableHead className="text-xs">Статус</TableHead>
-              <TableHead className="text-xs">Агент</TableHead>
-              <TableHead className="text-xs">Последний раз</TableHead>
+              <TableHead className="text-xs">{t(M.colStatus)}</TableHead>
+              <TableHead className="text-xs">{t(M.colAgent)}</TableHead>
+              <TableHead className="text-xs">{t(M.colLastSeen)}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.length === 0 && (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
-                  {filtering ? "Ничего не найдено" : "Нет устройств"}
+                  {filtering ? t(M.nothingFound) : t(M.noDevices)}
                 </TableCell>
               </TableRow>
             )}
             {rows.map((d) => {
-              const hint = matchHint(d, query)
+              const hint = matchHint(d, query, t)
               const accent = groupAccent(d.groups)
               return (
               <TableRow

@@ -4,6 +4,21 @@ import api from "@/lib/api"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { useT, type Msg } from "@/lib/i18n"
+
+const M = {
+  title: { ru: "Журнал действий", en: "Audit log" },
+  loading: { ru: "Загрузка...", en: "Loading..." },
+  noEntries: { ru: "Нет записей", en: "No entries" },
+  from: { ru: "С", en: "From" },
+  to: { ru: "По", en: "To" },
+  who: { ru: "Кто", en: "Who" },
+  all: { ru: "Все", en: "All" },
+  reset: { ru: "Сбросить", en: "Reset" },
+  events: { ru: "События", en: "Events" },
+  showing: { ru: "Показано {shown} из {total}", en: "Showing {shown} of {total}" },
+  notFound: { ru: "Ничего не найдено", en: "Nothing found" },
+}
 
 interface AuditEntry {
   id: string
@@ -15,26 +30,26 @@ interface AuditEntry {
   created_at: string
 }
 
-const ACTION_LABELS: Record<string, string> = {
-  block_device:          "Заблокировал устройство",
-  unblock_device:        "Разблокировал устройство",
-  approve_admin_request: "Одобрил заявку на права",
-  reject_admin_request:  "Отклонил заявку на права",
-  revoke_admin_request:  "Отозвал права администратора",
-  create_device:         "Добавил устройство",
-  reenroll_device:       "Перерегистрировал устройство",
-  apply_license:         "Применил лицензию",
-  deactivate_license:    "Деактивировал лицензию",
-  approve_device:        "Одобрил устройство",
-  reject_device:         "Отклонил устройство",
-  approve_pending_bulk:  "Одобрил очередь энроллмента",
-  reject_pending_bulk:   "Отклонил очередь энроллмента",
-  create_bulk_token:     "Выпустил массовый токен",
-  decommission_device:   "Вывел устройство из эксплуатации",
-  create_api_token:      "Выпустил API-токен",
-  revoke_api_token:      "Отозвал API-токен",
-  close_help_request:    "Закрыл обращение за помощью",
-  reopen_help_request:   "Переоткрыл обращение за помощью",
+const ACTION_LABELS: Record<string, Msg> = {
+  block_device:          { ru: "Заблокировал устройство", en: "Blocked a device" },
+  unblock_device:        { ru: "Разблокировал устройство", en: "Unblocked a device" },
+  approve_admin_request: { ru: "Одобрил заявку на права", en: "Approved an access request" },
+  reject_admin_request:  { ru: "Отклонил заявку на права", en: "Rejected an access request" },
+  revoke_admin_request:  { ru: "Отозвал права администратора", en: "Revoked administrator rights" },
+  create_device:         { ru: "Добавил устройство", en: "Added a device" },
+  reenroll_device:       { ru: "Перерегистрировал устройство", en: "Re-enrolled a device" },
+  apply_license:         { ru: "Применил лицензию", en: "Applied a license" },
+  deactivate_license:    { ru: "Деактивировал лицензию", en: "Deactivated a license" },
+  approve_device:        { ru: "Одобрил устройство", en: "Approved a device" },
+  reject_device:         { ru: "Отклонил устройство", en: "Rejected a device" },
+  approve_pending_bulk:  { ru: "Одобрил очередь энроллмента", en: "Approved the enrollment queue" },
+  reject_pending_bulk:   { ru: "Отклонил очередь энроллмента", en: "Rejected the enrollment queue" },
+  create_bulk_token:     { ru: "Выпустил массовый токен", en: "Issued a bulk token" },
+  decommission_device:   { ru: "Вывел устройство из эксплуатации", en: "Decommissioned a device" },
+  create_api_token:      { ru: "Выпустил API-токен", en: "Issued an API token" },
+  revoke_api_token:      { ru: "Отозвал API-токен", en: "Revoked an API token" },
+  close_help_request:    { ru: "Закрыл обращение за помощью", en: "Closed a help request" },
+  reopen_help_request:   { ru: "Переоткрыл обращение за помощью", en: "Reopened a help request" },
 }
 
 // Таксономия событий ленты — та же, что на Обзоре: security должно цепляться
@@ -69,6 +84,7 @@ const CATEGORY_STYLE: Record<EventCategory, { icon: ElementType; fg: string; bg:
 }
 
 export default function AuditLog() {
+  const t = useT()
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<AuditEntry | null>(null)
@@ -87,24 +103,24 @@ export default function AuditLog() {
   const toMs = to ? new Date(`${to}T23:59:59.999`).getTime() : null
   const filtered = entries.filter((e) => {
     if (who && e.user_email !== who) return false
-    const t = new Date(e.created_at).getTime()
-    if (fromMs !== null && t < fromMs) return false
-    if (toMs !== null && t > toMs) return false
+    const ts = new Date(e.created_at).getTime()
+    if (fromMs !== null && ts < fromMs) return false
+    if (toMs !== null && ts > toMs) return false
     return true
   })
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="text-xl font-semibold text-foreground">Журнал действий</h1>
+      <h1 className="text-xl font-semibold text-foreground">{t(M.title)}</h1>
       {loading ? (
-        <p className="text-sm text-muted-foreground">Загрузка...</p>
+        <p className="text-sm text-muted-foreground">{t(M.loading)}</p>
       ) : entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Нет записей</p>
+        <p className="text-sm text-muted-foreground">{t(M.noEntries)}</p>
       ) : (
         <>
         <div className="glass px-5 py-[18px] flex flex-wrap items-end gap-3">
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">С</Label>
+            <Label className="text-xs text-muted-foreground">{t(M.from)}</Label>
             <input
               type="date"
               value={from}
@@ -113,7 +129,7 @@ export default function AuditLog() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">По</Label>
+            <Label className="text-xs text-muted-foreground">{t(M.to)}</Label>
             <input
               type="date"
               value={to}
@@ -122,11 +138,11 @@ export default function AuditLog() {
             />
           </div>
           <div className="space-y-1 min-w-48">
-            <Label className="text-xs text-muted-foreground">Кто</Label>
+            <Label className="text-xs text-muted-foreground">{t(M.who)}</Label>
             <Select
               value={who}
               onChange={setWho}
-              options={[{ value: "", label: "Все" }, ...users.map((u) => ({ value: u, label: u }))]}
+              options={[{ value: "", label: t(M.all) }, ...users.map((u) => ({ value: u, label: u }))]}
             />
           </div>
           {(from || to || who) && (
@@ -135,19 +151,19 @@ export default function AuditLog() {
               onClick={() => { setFrom(""); setTo(""); setWho("") }}
               className="h-9 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              Сбросить
+              {t(M.reset)}
             </button>
           )}
         </div>
 
         <div className="glass">
           <div className="px-5 pt-4 pb-3">
-            <h2 className="text-[15px] font-semibold text-foreground">События</h2>
-            <p className="text-xs text-muted-foreground">Показано {filtered.length} из {entries.length}</p>
+            <h2 className="text-[15px] font-semibold text-foreground">{t(M.events)}</h2>
+            <p className="text-xs text-muted-foreground">{t(M.showing, { shown: filtered.length, total: entries.length })}</p>
           </div>
           {filtered.length === 0 && (
             <p className="text-xs text-muted-foreground px-5 py-8 text-center border-t border-border">
-              Ничего не найдено
+              {t(M.notFound)}
             </p>
           )}
           {filtered.map((e, i) => {
@@ -171,7 +187,7 @@ export default function AuditLog() {
                     <span className="font-medium text-foreground">{e.user_email}</span>
                     {" "}
                     <span className={cat === "security" ? fg : "text-muted-foreground"}>
-                      {ACTION_LABELS[e.action] ?? e.action}
+                      {ACTION_LABELS[e.action] ? t(ACTION_LABELS[e.action]) : e.action}
                     </span>
                   </p>
                   {summary && (
@@ -195,7 +211,7 @@ export default function AuditLog() {
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{selected ? (ACTION_LABELS[selected.action] ?? selected.action) : ""}</DialogTitle>
+            <DialogTitle>{selected ? (ACTION_LABELS[selected.action] ? t(ACTION_LABELS[selected.action]) : selected.action) : ""}</DialogTitle>
           </DialogHeader>
           {selected && (
             <div className="space-y-3 pt-1">

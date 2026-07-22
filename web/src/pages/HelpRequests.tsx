@@ -10,10 +10,42 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input"
 import { formatDistanceToNow } from "@/lib/time"
 import { toast } from "@/lib/toast"
+import { useT, type Msg } from "@/lib/i18n"
 
-const statusLabel: Record<string, string> = {
-  new: "Новое",
-  closed: "Закрыто",
+const statusLabel: Record<string, Msg> = {
+  new: { ru: "Новое", en: "New" },
+  closed: { ru: "Закрыто", en: "Closed" },
+}
+
+const M = {
+  loadErr: { ru: "Не удалось загрузить обращения", en: "Failed to load help requests" },
+  statusErr: { ru: "Не удалось изменить статус обращения", en: "Failed to change request status" },
+  loading: { ru: "Загрузка...", en: "Loading..." },
+  title: { ru: "Обращения", en: "Help requests" },
+  cardTitle: { ru: "Обращения за помощью", en: "Help requests" },
+  cardSubtitle: {
+    ru: "Сообщения сотрудников с устройств («Сообщить о проблеме» в трее)",
+    en: "Messages from employees on their devices (\"Report a problem\" in the tray)",
+  },
+  onlyNew: { ru: "Только новые", en: "New only" },
+  searchPlaceholder: { ru: "Поиск...", en: "Search..." },
+  thDevice: { ru: "Устройство", en: "Device" },
+  thUser: { ru: "Пользователь", en: "User" },
+  thMessage: { ru: "Сообщение", en: "Message" },
+  thReceived: { ru: "Получено", en: "Received" },
+  thStatus: { ru: "Статус", en: "Status" },
+  emptyNone: { ru: "Нет обращений", en: "No help requests" },
+  emptySearch: { ru: "Ничего не найдено", en: "Nothing found" },
+  openHint: { ru: "Нажмите, чтобы открыть обращение", en: "Click to open the request" },
+  screenshotNoText: { ru: "(скриншот без текста)", en: "(screenshot without text)" },
+  close: { ru: "Закрыть", en: "Close" },
+  reopen: { ru: "Переоткрыть", en: "Reopen" },
+  dialogTitle: { ru: "Обращение за помощью", en: "Help request" },
+  labelClosedBy: { ru: "Закрыл", en: "Closed by" },
+  screenshot: { ru: "Скриншот", en: "Screenshot" },
+  screenshotAlt: { ru: "Скриншот с устройства", en: "Screenshot from device" },
+  saving: { ru: "Сохранение...", en: "Saving..." },
+  closeRequest: { ru: "Закрыть обращение", en: "Close request" },
 }
 
 const statusVariant: Record<string, "default" | "secondary" | "success" | "destructive" | "outline"> = {
@@ -25,6 +57,7 @@ const statusVariant: Record<string, "default" | "secondary" | "success" | "destr
 const ROW = "hover:bg-transparent"
 
 export default function HelpRequests() {
+  const t = useT()
   const { isAdmin } = useMe()
   const [requests, setRequests] = useState<HelpRequest[]>([])
   const [onlyNew, setOnlyNew] = useState(true)
@@ -38,7 +71,7 @@ export default function HelpRequests() {
       const r = await api.get<HelpRequest[]>("/help-requests")
       setRequests(r.data ?? [])
     } catch {
-      toast({ title: "Не удалось загрузить обращения", variant: "destructive" })
+      toast({ title: t(M.loadErr), variant: "destructive" })
     } finally {
       setLoading(false)
     }
@@ -53,7 +86,7 @@ export default function HelpRequests() {
       setViewReq(null)
       await load()
     } catch {
-      toast({ title: "Не удалось изменить статус обращения", variant: "destructive" })
+      toast({ title: t(M.statusErr), variant: "destructive" })
     } finally {
       setSubmitting(false)
     }
@@ -70,20 +103,20 @@ export default function HelpRequests() {
       )
     : base
 
-  if (loading) return <p className="text-muted-foreground text-sm">Загрузка...</p>
+  if (loading) return <p className="text-muted-foreground text-sm">{t(M.loading)}</p>
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold text-foreground">Обращения</h1>
+        <h1 className="text-xl font-semibold text-foreground">{t(M.title)}</h1>
         {fresh.length > 0 && <Badge variant="secondary">{fresh.length}</Badge>}
       </div>
 
       <div className="glass overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-4 pb-3">
           <div>
-            <h2 className="text-[15px] font-semibold text-foreground">Обращения за помощью</h2>
-            <p className="text-xs text-muted-foreground">Сообщения сотрудников с устройств («Сообщить о проблеме» в трее)</p>
+            <h2 className="text-[15px] font-semibold text-foreground">{t(M.cardTitle)}</h2>
+            <p className="text-xs text-muted-foreground">{t(M.cardSubtitle)}</p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -91,10 +124,10 @@ export default function HelpRequests() {
               variant={onlyNew ? "default" : "outline"}
               onClick={() => setOnlyNew(!onlyNew)}
             >
-              Только новые
+              {t(M.onlyNew)}
             </Button>
             <Input
-              placeholder="Поиск..."
+              placeholder={t(M.searchPlaceholder)}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="max-w-[220px]"
@@ -105,11 +138,11 @@ export default function HelpRequests() {
         <Table>
           <TableHeader>
             <TableRow className={ROW}>
-              <TableHead className="px-5 text-xs font-medium text-muted-foreground">Устройство</TableHead>
-              <TableHead className="px-5 text-xs font-medium text-muted-foreground">Пользователь</TableHead>
-              <TableHead className="px-5 text-xs font-medium text-muted-foreground">Сообщение</TableHead>
-              <TableHead className="px-5 text-xs font-medium text-muted-foreground">Получено</TableHead>
-              <TableHead className="px-5 text-xs font-medium text-muted-foreground">Статус</TableHead>
+              <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.thDevice)}</TableHead>
+              <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.thUser)}</TableHead>
+              <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.thMessage)}</TableHead>
+              <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.thReceived)}</TableHead>
+              <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.thStatus)}</TableHead>
               <TableHead className="px-5" />
             </TableRow>
           </TableHeader>
@@ -117,7 +150,7 @@ export default function HelpRequests() {
             {visible.length === 0 && (
               <TableRow className={ROW}>
                 <TableCell colSpan={6} className="text-center text-xs text-muted-foreground py-8">
-                  {requests.length === 0 ? "Нет обращений" : "Ничего не найдено"}
+                  {requests.length === 0 ? t(M.emptyNone) : t(M.emptySearch)}
                 </TableCell>
               </TableRow>
             )}
@@ -135,27 +168,27 @@ export default function HelpRequests() {
                     type="button"
                     onClick={() => setViewReq(req)}
                     className="flex items-center gap-1.5 max-w-sm text-left text-soft hover:text-foreground transition-colors hover:underline underline-offset-2"
-                    title="Нажмите, чтобы открыть обращение"
+                    title={t(M.openHint)}
                   >
                     {req.has_screenshot && <Paperclip className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />}
-                    <span className="truncate">{req.message || "(скриншот без текста)"}</span>
+                    <span className="truncate">{req.message || t(M.screenshotNoText)}</span>
                   </button>
                 </TableCell>
                 <TableCell className="px-5 py-3 text-xs text-muted-foreground">{formatDistanceToNow(req.received_at)}</TableCell>
                 <TableCell className="px-5 py-3">
                   <Badge variant={statusVariant[req.status] ?? "default"}>
-                    {statusLabel[req.status] ?? req.status}
+                    {statusLabel[req.status] ? t(statusLabel[req.status]) : req.status}
                   </Badge>
                 </TableCell>
                 <TableCell className="px-5 py-3">
                   {isAdmin && req.status === "new" && (
                     <Button size="sm" variant="outline" disabled={submitting} onClick={() => setStatus(req.id, "closed")}>
-                      Закрыть
+                      {t(M.close)}
                     </Button>
                   )}
                   {isAdmin && req.status === "closed" && (
                     <Button size="sm" variant="outline" disabled={submitting} onClick={() => setStatus(req.id, "new")}>
-                      Переоткрыть
+                      {t(M.reopen)}
                     </Button>
                   )}
                 </TableCell>
@@ -168,13 +201,13 @@ export default function HelpRequests() {
       <Dialog open={!!viewReq} onOpenChange={(o) => !o && setViewReq(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Обращение за помощью</DialogTitle>
+            <DialogTitle>{t(M.dialogTitle)}</DialogTitle>
           </DialogHeader>
           {viewReq && (
             <div className="space-y-4 pt-1">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Устройство</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t(M.thDevice)}</p>
                   <p className="text-sm font-medium text-foreground">
                     <Link to={`/devices/${viewReq.device_id}`} className="hover:underline underline-offset-2">
                       {viewReq.device_hostname || viewReq.device_id.slice(0, 8)}
@@ -182,22 +215,22 @@ export default function HelpRequests() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Статус</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t(M.thStatus)}</p>
                   <Badge variant={statusVariant[viewReq.status] ?? "default"}>
-                    {statusLabel[viewReq.status] ?? viewReq.status}
+                    {statusLabel[viewReq.status] ? t(statusLabel[viewReq.status]) : viewReq.status}
                   </Badge>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Пользователь</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t(M.thUser)}</p>
                   <p className="text-[13px] text-soft">{viewReq.reporter || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Получено</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t(M.thReceived)}</p>
                   <p className="text-[13px] text-soft">{formatDistanceToNow(viewReq.received_at)}</p>
                 </div>
                 {viewReq.status === "closed" && viewReq.closed_by_email && (
                   <div className="col-span-2">
-                    <p className="text-xs text-muted-foreground mb-0.5">Закрыл</p>
+                    <p className="text-xs text-muted-foreground mb-0.5">{t(M.labelClosedBy)}</p>
                     <p className="text-[13px] text-soft">
                       {viewReq.closed_by_email}
                       {viewReq.closed_at ? ` · ${formatDistanceToNow(viewReq.closed_at)}` : ""}
@@ -207,7 +240,7 @@ export default function HelpRequests() {
               </div>
               {viewReq.message && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1.5">Сообщение</p>
+                  <p className="text-xs text-muted-foreground mb-1.5">{t(M.thMessage)}</p>
                   <div className="rounded-md border border-border bg-muted px-3 py-2.5 text-[13px] leading-relaxed text-soft break-words whitespace-pre-wrap">
                     {viewReq.message}
                   </div>
@@ -215,13 +248,13 @@ export default function HelpRequests() {
               )}
               {viewReq.has_screenshot && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1.5">Скриншот</p>
+                  <p className="text-xs text-muted-foreground mb-1.5">{t(M.screenshot)}</p>
                   {/* Cookie-авторизация: <img> на same-origin URL работает без токенов.
                       Клик открывает оригинал в новой вкладке. */}
                   <a href={helpRequestScreenshotUrl(viewReq.id)} target="_blank" rel="noreferrer">
                     <img
                       src={helpRequestScreenshotUrl(viewReq.id)}
-                      alt="Скриншот с устройства"
+                      alt={t(M.screenshotAlt)}
                       loading="lazy"
                       className="max-h-[360px] w-auto rounded-md border border-border"
                     />
@@ -232,11 +265,11 @@ export default function HelpRequests() {
                 <div className="flex justify-end gap-2">
                   {viewReq.status === "new" ? (
                     <Button disabled={submitting} onClick={() => setStatus(viewReq.id, "closed")}>
-                      {submitting ? "Сохранение..." : "Закрыть обращение"}
+                      {submitting ? t(M.saving) : t(M.closeRequest)}
                     </Button>
                   ) : (
                     <Button variant="outline" disabled={submitting} onClick={() => setStatus(viewReq.id, "new")}>
-                      {submitting ? "Сохранение..." : "Переоткрыть"}
+                      {submitting ? t(M.saving) : t(M.reopen)}
                     </Button>
                   )}
                 </div>

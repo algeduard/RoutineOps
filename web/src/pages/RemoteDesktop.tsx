@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { ChevronLeft, MousePointer2, Eye, Maximize2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useT, type Msg } from "@/lib/i18n"
 
 // Страница удалённого рабочего стола. Открывает WebSocket на сервер, рендерит
 // приходящие JPEG-кадры в <canvas> и (в режиме управления) шлёт события мыши/
@@ -15,7 +16,39 @@ type Phase = "connecting" | "waiting" | "active" | "ended" | "error" | "denied"
 // RDInputEvent.button (0=left,1=right,2=middle).
 const buttonMap: Record<number, number> = { 0: 0, 1: 2, 2: 1 }
 
+const M = {
+  errorFallback: { ru: "ошибка", en: "error" },
+  connectFailed: {
+    ru: "не удалось подключиться — устройство офлайн или недоступно",
+    en: "failed to connect — the device is offline or unavailable",
+  },
+  backToDevice: { ru: "К устройству", en: "Back to device" },
+  title: { ru: "Удалённый рабочий стол", en: "Remote desktop" },
+  viewOnly: { ru: "Только просмотр", en: "View only" },
+  takeControl: { ru: "Взять управление вводом", en: "Take input control" },
+  control: { ru: "Управление", en: "Control" },
+  view: { ru: "Просмотр", en: "View" },
+  fullscreen: { ru: "Во весь экран", en: "Fullscreen" },
+  returnToDevice: { ru: "Вернуться к устройству", en: "Return to device" },
+  controlHint: {
+    ru: "Управление включено: движения мыши и нажатия клавиш передаются на устройство. Правый клик и системные сочетания перехватываются. Ctrl+Alt+Del перехватить из браузера нельзя (ограничение ОС).",
+    en: "Control is on: mouse movements and key presses are sent to the device. Right-click and system shortcuts are intercepted. Ctrl+Alt+Del cannot be captured from the browser (an OS limitation).",
+  },
+  pillConnecting: { ru: "Подключение", en: "Connecting" },
+  pillWaiting: { ru: "Ожидание устройства", en: "Waiting for device" },
+  pillActive: { ru: "В эфире", en: "Live" },
+  pillEnded: { ru: "Сеанс завершён", en: "Session ended" },
+  pillError: { ru: "Ошибка", en: "Error" },
+  pillDenied: { ru: "Отклонено пользователем", en: "Denied by user" },
+  textConnecting: { ru: "Подключение…", en: "Connecting…" },
+  textWaiting: { ru: "Ожидаем, пока устройство поднимет сеанс…", en: "Waiting for the device to start the session…" },
+  textEnded: { ru: "Сеанс завершён.", en: "Session ended." },
+  textDenied: { ru: "Пользователь на устройстве отклонил удалённый доступ.", en: "The user on the device denied remote access." },
+  textError: { ru: "Не удалось установить сеанс.", en: "Failed to establish the session." },
+}
+
 export default function RemoteDesktop() {
+  const t = useT()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -43,18 +76,19 @@ export default function RemoteDesktop() {
 
     ws.onmessage = async (ev) => {
       if (typeof ev.data === "string") {
-        let m: any
+        let m: { type?: string; w?: number; h?: number; code?: number; message?: string }
         try { m = JSON.parse(ev.data) } catch { return }
         if (m.type === "ready") {
           ready = true
-          setSize({ w: m.w, h: m.h })
+          const w = m.w ?? 0, h = m.h ?? 0
+          setSize({ w, h })
           const c = canvasRef.current
-          if (c) { c.width = m.w; c.height = m.h }
+          if (c) { c.width = w; c.height = h }
           setPhase("active")
         } else if (m.type === "status") {
           if (m.code === 2) { setPhase("denied") } // RD_STATUS_CODE_USER_DENIED
         } else if (m.type === "error") {
-          setErrMsg(m.message || "ошибка")
+          setErrMsg(m.message || t(M.errorFallback))
           setPhase("error")
         }
         return
@@ -75,10 +109,10 @@ export default function RemoteDesktop() {
 
     ws.onclose = () => {
       setPhase((p) => (p === "denied" || p === "error" ? p : ready ? "ended" : "error"))
-      if (!ready) setErrMsg("не удалось подключиться — устройство офлайн или недоступно")
+      if (!ready) setErrMsg(t(M.connectFailed))
     }
     ws.onerror = () => {
-      if (!ready) setErrMsg("не удалось подключиться — устройство офлайн или недоступно")
+      if (!ready) setErrMsg(t(M.connectFailed))
     }
     setPhase((p) => (p === "connecting" ? "waiting" : p))
 
@@ -141,9 +175,9 @@ export default function RemoteDesktop() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" onClick={() => navigate(`/devices/${id}`)}>
-          <ChevronLeft className="mr-1 h-4 w-4" /> К устройству
+          <ChevronLeft className="mr-1 h-4 w-4" /> {t(M.backToDevice)}
         </Button>
-        <h1 className="text-lg font-semibold">Удалённый рабочий стол</h1>
+        <h1 className="text-lg font-semibold">{t(M.title)}</h1>
         <PhasePill phase={phase} />
         <div className="ml-auto flex items-center gap-2">
           <Button
@@ -151,13 +185,13 @@ export default function RemoteDesktop() {
             size="sm"
             disabled={phase !== "active"}
             onClick={() => setControl((v) => !v)}
-            title={control ? "Только просмотр" : "Взять управление вводом"}
+            title={control ? t(M.viewOnly) : t(M.takeControl)}
           >
             {control ? <MousePointer2 className="mr-1 h-4 w-4" /> : <Eye className="mr-1 h-4 w-4" />}
-            {control ? "Управление" : "Просмотр"}
+            {control ? t(M.control) : t(M.view)}
           </Button>
           <Button variant="outline" size="sm" disabled={phase !== "active"} onClick={enterFullscreen}>
-            <Maximize2 className="mr-1 h-4 w-4" /> Во весь экран
+            <Maximize2 className="mr-1 h-4 w-4" /> {t(M.fullscreen)}
           </Button>
         </div>
       </div>
@@ -176,10 +210,10 @@ export default function RemoteDesktop() {
         {phase !== "active" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 text-white">
             {(phase === "connecting" || phase === "waiting") && <Loader2 className="h-8 w-8 animate-spin opacity-80" />}
-            <p className="text-sm opacity-90">{phaseText(phase, errMsg)}</p>
+            <p className="text-sm opacity-90">{phaseText(phase, errMsg, t)}</p>
             {(phase === "ended" || phase === "error" || phase === "denied") && (
               <Button variant="outline" size="sm" onClick={() => navigate(`/devices/${id}`)}>
-                Вернуться к устройству
+                {t(M.returnToDevice)}
               </Button>
             )}
           </div>
@@ -188,8 +222,7 @@ export default function RemoteDesktop() {
 
       {control && phase === "active" && (
         <p className="text-xs text-muted-foreground">
-          Управление включено: движения мыши и нажатия клавиш передаются на устройство. Правый клик и системные
-          сочетания перехватываются. Ctrl+Alt+Del перехватить из браузера нельзя (ограничение ОС).
+          {t(M.controlHint)}
         </p>
       )}
     </div>
@@ -197,25 +230,26 @@ export default function RemoteDesktop() {
 }
 
 function PhasePill({ phase }: { phase: Phase }) {
-  const map: Record<Phase, { label: string; cls: string }> = {
-    connecting: { label: "Подключение", cls: "bg-yellow-500/15 text-yellow-600" },
-    waiting: { label: "Ожидание устройства", cls: "bg-yellow-500/15 text-yellow-600" },
-    active: { label: "В эфире", cls: "bg-green-500/15 text-green-600" },
-    ended: { label: "Сеанс завершён", cls: "bg-muted text-muted-foreground" },
-    error: { label: "Ошибка", cls: "bg-red-500/15 text-red-600" },
-    denied: { label: "Отклонено пользователем", cls: "bg-red-500/15 text-red-600" },
+  const t = useT()
+  const map: Record<Phase, { label: Msg; cls: string }> = {
+    connecting: { label: M.pillConnecting, cls: "bg-yellow-500/15 text-yellow-600" },
+    waiting: { label: M.pillWaiting, cls: "bg-yellow-500/15 text-yellow-600" },
+    active: { label: M.pillActive, cls: "bg-green-500/15 text-green-600" },
+    ended: { label: M.pillEnded, cls: "bg-muted text-muted-foreground" },
+    error: { label: M.pillError, cls: "bg-red-500/15 text-red-600" },
+    denied: { label: M.pillDenied, cls: "bg-red-500/15 text-red-600" },
   }
   const { label, cls } = map[phase]
-  return <span className={`rounded px-2 py-0.5 text-xs font-medium ${cls}`}>{label}</span>
+  return <span className={`rounded px-2 py-0.5 text-xs font-medium ${cls}`}>{t(label)}</span>
 }
 
-function phaseText(phase: Phase, errMsg: string): string {
+function phaseText(phase: Phase, errMsg: string, t: ReturnType<typeof useT>): string {
   switch (phase) {
-    case "connecting": return "Подключение…"
-    case "waiting": return "Ожидаем, пока устройство поднимет сеанс…"
-    case "ended": return "Сеанс завершён."
-    case "denied": return "Пользователь на устройстве отклонил удалённый доступ."
-    case "error": return errMsg || "Не удалось установить сеанс."
+    case "connecting": return t(M.textConnecting)
+    case "waiting": return t(M.textWaiting)
+    case "ended": return t(M.textEnded)
+    case "denied": return t(M.textDenied)
+    case "error": return errMsg || t(M.textError)
     default: return ""
   }
 }

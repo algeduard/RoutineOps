@@ -8,12 +8,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { formatDistanceToNow } from "@/lib/time"
 import { toast } from "@/lib/toast"
 import { useMe } from "@/lib/useMe"
+import { useT, type Msg } from "@/lib/i18n"
 
-const alertTypeLabel: Record<string, string> = {
-  forbidden_software:             "Запрещённое ПО",
-  unauthorized_install:           "Неавторизованная установка",
-  unauthorized_settings_change:   "Изменение настроек",
-  agent_unreachable:              "Агент недоступен",
+const alertTypeLabel: Record<string, Msg> = {
+  forbidden_software:             { ru: "Запрещённое ПО", en: "Forbidden software" },
+  unauthorized_install:           { ru: "Неавторизованная установка", en: "Unauthorized install" },
+  unauthorized_settings_change:   { ru: "Изменение настроек", en: "Settings change" },
+  agent_unreachable:              { ru: "Агент недоступен", en: "Agent unreachable" },
 }
 
 const alertTypeColor: Record<string, string> = {
@@ -51,7 +52,29 @@ function groupByType(alerts: Alert[]): AlertGroup[] {
     .sort((a, b) => rank(a.type) - rank(b.type) || a.type.localeCompare(b.type))
 }
 
+const M = {
+  loadError: { ru: "Не удалось загрузить алерты", en: "Failed to load alerts" },
+  ackError: { ru: "Не удалось принять алерт", en: "Failed to acknowledge alert" },
+  loading: { ru: "Загрузка...", en: "Loading..." },
+  title: { ru: "Алерты", en: "Alerts" },
+  nNew: { ru: "{n} новых", en: "{n} new" },
+  showAll: { ru: "Показать все", en: "Show all" },
+  onlyNew: { ru: "Только новые", en: "Only new" },
+  searchPlaceholder: { ru: "Поиск по устройству...", en: "Search by device..." },
+  noAlerts: { ru: "Нет алертов", en: "No alerts" },
+  acked: { ru: "Принято", en: "Acknowledged" },
+  new: { ru: "Новый", en: "New" },
+  ack: { ru: "Принять", en: "Acknowledge" },
+  device: { ru: "Устройство", en: "Device" },
+  created: { ru: "Создан", en: "Created" },
+  status: { ru: "Статус", en: "Status" },
+  details: { ru: "Детали", en: "Details" },
+  acking: { ru: "Принятие...", en: "Acknowledging..." },
+  ackAlert: { ru: "Принять алерт", en: "Acknowledge alert" },
+}
+
 export default function Alerts() {
+  const t = useT()
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [loading, setLoading] = useState(true)
   const [onlyNew, setOnlyNew] = useState(false)
@@ -75,7 +98,7 @@ export default function Alerts() {
       const r = await api.get<Alert[]>("/alerts")
       setAlerts(r.data ?? [])
     } catch {
-      toast({ title: "Не удалось загрузить алерты", variant: "destructive" })
+      toast({ title: t(M.loadError), variant: "destructive" })
     } finally {
       setLoading(false)
     }
@@ -91,13 +114,13 @@ export default function Alerts() {
       await load()
       if (selectedAlert?.id === id) setSelectedAlert(null)
     } catch {
-      toast({ title: "Не удалось принять алерт", variant: "destructive" })
+      toast({ title: t(M.ackError), variant: "destructive" })
     } finally {
       setSubmitting(null)
     }
   }
 
-  if (loading) return <p className="text-muted-foreground text-sm">Загрузка...</p>
+  if (loading) return <p className="text-muted-foreground text-sm">{t(M.loading)}</p>
 
   const unacked = alerts.filter((a) => !a.acknowledged_at)
   const q = query.trim().toLowerCase()
@@ -112,11 +135,11 @@ export default function Alerts() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold text-foreground">Алерты</h1>
+        <h1 className="text-xl font-semibold text-foreground">{t(M.title)}</h1>
         {unacked.length > 0 && (
           <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-semibold text-red-600 dark:text-red-400">
             <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2} />
-            {unacked.length} новых
+            {t(M.nNew, { n: unacked.length })}
           </span>
         )}
         <button
@@ -124,12 +147,12 @@ export default function Alerts() {
           className={`ml-auto text-xs px-3 py-1.5 rounded-md border transition-colors ${onlyNew ? "bg-destructive/10 border-destructive/30 text-destructive" : "border-input text-muted-foreground hover:text-foreground"}`}
           onClick={() => setOnlyNew(!onlyNew)}
         >
-          {onlyNew ? "Показать все" : "Только новые"}
+          {onlyNew ? t(M.showAll) : t(M.onlyNew)}
         </button>
       </div>
 
       <Input
-        placeholder="Поиск по устройству..."
+        placeholder={t(M.searchPlaceholder)}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         className="max-w-sm"
@@ -137,7 +160,7 @@ export default function Alerts() {
 
       {groups.length === 0 && (
         <div className="glass py-10 text-center text-sm text-muted-foreground">
-          Нет алертов
+          {t(M.noAlerts)}
         </div>
       )}
 
@@ -160,12 +183,12 @@ export default function Alerts() {
               )}
               <AlertTriangle className={`h-[17px] w-[17px] ${color}`} strokeWidth={2} />
               <span className="text-[15px] font-semibold text-foreground">
-                {alertTypeLabel[g.type] ?? g.type}
+                {alertTypeLabel[g.type] ? t(alertTypeLabel[g.type]) : g.type}
               </span>
               <span className="text-xs text-muted-foreground tabular-nums">{g.alerts.length}</span>
               {g.unacked > 0 && (
                 <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-semibold text-red-600 dark:text-red-400">
-                  {g.unacked} новых
+                  {t(M.nNew, { n: g.unacked })}
                 </span>
               )}
             </button>
@@ -192,9 +215,9 @@ export default function Alerts() {
                         {formatDistanceToNow(a.created_at)}
                       </span>
                       {a.acknowledged_at ? (
-                        <Badge variant="secondary">Принято</Badge>
+                        <Badge variant="secondary">{t(M.acked)}</Badge>
                       ) : (
-                        <Badge variant="destructive">Новый</Badge>
+                        <Badge variant="destructive">{t(M.new)}</Badge>
                       )}
                       {isAdmin && !a.acknowledged_at && (
                         <Button
@@ -203,7 +226,7 @@ export default function Alerts() {
                           disabled={submitting === a.id}
                           onClick={(e) => acknowledge(a.id, e)}
                         >
-                          {submitting === a.id ? "..." : "Принять"}
+                          {submitting === a.id ? "..." : t(M.ack)}
                         </Button>
                       )}
                     </div>
@@ -221,33 +244,33 @@ export default function Alerts() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className={`h-[17px] w-[17px] ${selectedAlert ? (alertTypeColor[selectedAlert.alert_type] ?? "text-foreground") : ""}`} strokeWidth={2} />
-              {selectedAlert ? (alertTypeLabel[selectedAlert.alert_type] ?? selectedAlert.alert_type) : ""}
+              {selectedAlert ? (alertTypeLabel[selectedAlert.alert_type] ? t(alertTypeLabel[selectedAlert.alert_type]) : selectedAlert.alert_type) : ""}
             </DialogTitle>
           </DialogHeader>
           {selectedAlert && (
             <div className="space-y-4 pt-1">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Устройство</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t(M.device)}</p>
                   <p className="font-medium text-foreground">{selectedAlert.device_hostname || selectedAlert.device_id.slice(0, 8)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Создан</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t(M.created)}</p>
                   <p className="text-soft">{formatDistanceToNow(selectedAlert.created_at)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Статус</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t(M.status)}</p>
                   {selectedAlert.acknowledged_at ? (
-                    <Badge variant="secondary">Принято</Badge>
+                    <Badge variant="secondary">{t(M.acked)}</Badge>
                   ) : (
-                    <Badge variant="destructive">Новый</Badge>
+                    <Badge variant="destructive">{t(M.new)}</Badge>
                   )}
                 </div>
               </div>
 
               {selectedAlert.details && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1.5">Детали</p>
+                  <p className="text-xs text-muted-foreground mb-1.5">{t(M.details)}</p>
                   <div className="rounded-md border border-border bg-muted px-3 py-2.5 text-sm font-mono text-soft break-all">
                     {selectedAlert.details}
                   </div>
@@ -260,7 +283,7 @@ export default function Alerts() {
                   onClick={() => acknowledge(selectedAlert.id)}
                   disabled={submitting === selectedAlert.id}
                 >
-                  {submitting === selectedAlert.id ? "Принятие..." : "Принять алерт"}
+                  {submitting === selectedAlert.id ? t(M.acking) : t(M.ackAlert)}
                 </Button>
               )}
             </div>

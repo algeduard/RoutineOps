@@ -7,8 +7,23 @@ import { Label } from "@/components/ui/label"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { RoutineOpsLogo } from "@/components/RoutineOpsLogo"
 import SpotlightCard from "@/components/SpotlightCard"
+import { useT } from "@/lib/i18n"
+
+const M = {
+  passwordsDontMatch: { ru: "Пароли не совпадают", en: "Passwords do not match" },
+  minChars: { ru: "Минимум 8 символов", en: "Minimum 8 characters" },
+  linkInvalidOrExpired: { ru: "Ссылка недействительна или истекла", en: "The link is invalid or has expired" },
+  invalidLink: { ru: "Неверная ссылка.", en: "Invalid link." },
+  toLogin: { ru: "На страницу входа", en: "To sign in" },
+  subtitle: { ru: "Новый пароль", en: "New password" },
+  newPassword: { ru: "Новый пароль", en: "New password" },
+  confirmPassword: { ru: "Подтвердите пароль", en: "Confirm password" },
+  saving: { ru: "Сохранение...", en: "Saving..." },
+  savePassword: { ru: "Сохранить пароль", en: "Save password" },
+}
 
 export default function ResetPassword() {
+  const t = useT()
   const [searchParams] = useSearchParams()
   const token = searchParams.get("token") ?? ""
   const navigate = useNavigate()
@@ -22,11 +37,11 @@ export default function ResetPassword() {
     e.preventDefault()
     setError("")
     if (password !== confirm) {
-      setError("Пароли не совпадают")
+      setError(t(M.passwordsDontMatch))
       return
     }
     if (password.length < 8) {
-      setError("Минимум 8 символов")
+      setError(t(M.minChars))
       return
     }
     setLoading(true)
@@ -34,7 +49,7 @@ export default function ResetPassword() {
       await axios.post("/api/v1/auth/reset-password", { token, password })
       navigate("/login")
     } catch {
-      setError("Ссылка недействительна или истекла")
+      setError(t(M.linkInvalidOrExpired))
     } finally {
       setLoading(false)
     }
@@ -54,8 +69,8 @@ export default function ResetPassword() {
           <CardContent className="px-5 pb-6">
             {/* --destructive в тёмной теме (45% светлоты) на стекле почти не читается —
                 берём тот же красный, что у алерт-цифры на дашборде. */}
-            <p className="text-sm text-destructive dark:text-[hsl(0_72%_66%)]">Неверная ссылка.</p>
-            <Link to="/login" className="mt-2 block text-sm text-brand hover:underline">На страницу входа</Link>
+            <p className="text-sm text-destructive dark:text-[hsl(0_72%_66%)]">{t(M.invalidLink)}</p>
+            <Link to="/login" className="mt-2 block text-sm text-brand hover:underline">{t(M.toLogin)}</Link>
           </CardContent>
         </SpotlightCard>
       </div>
@@ -71,12 +86,12 @@ export default function ResetPassword() {
             <RoutineOpsLogo size={32} />
             <span className="text-lg font-semibold tracking-tight">RoutineOps</span>
           </CardTitle>
-          <p className="text-center text-xs text-muted-foreground">Новый пароль</p>
+          <p className="text-center text-xs text-muted-foreground">{t(M.subtitle)}</p>
         </CardHeader>
         <CardContent className="px-5 pb-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-soft">Новый пароль</Label>
+              <Label htmlFor="password" className="text-soft">{t(M.newPassword)}</Label>
               <Input
                 id="password"
                 type="password"
@@ -87,7 +102,7 @@ export default function ResetPassword() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="confirm" className="text-soft">Подтвердите пароль</Label>
+              <Label htmlFor="confirm" className="text-soft">{t(M.confirmPassword)}</Label>
               <Input
                 id="confirm"
                 type="password"
@@ -100,7 +115,7 @@ export default function ResetPassword() {
                 берём тот же красный, что у алерт-цифры на дашборде. */}
             {error && <p className="text-sm text-destructive dark:text-[hsl(0_72%_66%)]">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Сохранение..." : "Сохранить пароль"}
+              {loading ? t(M.saving) : t(M.savePassword)}
             </Button>
           </form>
         </CardContent>

@@ -2,13 +2,15 @@ import { useEffect, useState } from "react"
 import { Activity, Cpu, HardDrive, MemoryStick, Network, type LucideIcon } from "lucide-react"
 import api, { ResourceMetric } from "@/lib/api"
 import { MiniAreaChart, RangeToggle } from "@/components/charts"
+import { useT, getLang } from "@/lib/i18n"
 
 type Range = "1h" | "24h"
 
 // fmtBytes — человекочитаемый размер (Б/КБ/МБ/ГБ/ТБ, десятичный на 1024).
 function fmtBytes(n: number): string {
-  if (n < 1024) return `${Math.round(n)} Б`
-  const units = ["КБ", "МБ", "ГБ", "ТБ"]
+  const en = getLang() === "en"
+  if (n < 1024) return `${Math.round(n)} ${en ? "B" : "Б"}`
+  const units = en ? ["KB", "MB", "GB", "TB"] : ["КБ", "МБ", "ГБ", "ТБ"]
   let v = n / 1024
   let i = 0
   while (v >= 1024 && i < units.length - 1) {
@@ -18,8 +20,21 @@ function fmtBytes(n: number): string {
   return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`
 }
 
-const fmtBps = (n: number) => `${fmtBytes(n)}/с`
+const fmtBps = (n: number) => `${fmtBytes(n)}/${getLang() === "en" ? "s" : "с"}`
 const fmtPct = (n: number) => `${Math.round(n)}%`
+
+const M = {
+  resources: { ru: "Ресурсы", en: "Resources" },
+  range1h: { ru: "1ч", en: "1h" },
+  range24h: { ru: "24ч", en: "24h" },
+  loading: { ru: "Загрузка...", en: "Loading..." },
+  noMetrics: {
+    ru: "Метрики ещё не поступали. Агент собирает их по таймеру — данные появятся через минуту после подключения.",
+    en: "No metrics received yet. The agent collects them on a timer — data will appear a minute after it connects.",
+  },
+  diskSystem: { ru: "Диск (система)", en: "Disk (system)" },
+  network: { ru: "Сеть", en: "Network" },
+}
 
 function MetricCard({ icon: Icon, label, value, sub, series, color, max }: {
   icon: LucideIcon
@@ -48,6 +63,7 @@ function MetricCard({ icon: Icon, label, value, sub, series, color, max }: {
 // DeviceResources — секция «Ресурсы»: живые значения CPU/RAM/диск/сеть + SVG-графики
 // истории за 1ч/24ч. Poll каждые 10с (как остальная карточка устройства).
 export default function DeviceResources({ deviceId }: { deviceId: string }) {
+  const t = useT()
   const [latest, setLatest] = useState<ResourceMetric | null>(null)
   const [history, setHistory] = useState<ResourceMetric[]>([])
   const [range, setRange] = useState<Range>("1h")
@@ -91,16 +107,16 @@ export default function DeviceResources({ deviceId }: { deviceId: string }) {
       <div className="mb-4 flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-[15px] font-semibold text-foreground">
           <Activity className="h-[17px] w-[17px] text-muted-foreground" strokeWidth={2} />
-          Ресурсы
+          {t(M.resources)}
         </h2>
-        <RangeToggle value={range} onChange={setRange} options={[["1h", "1ч"], ["24h", "24ч"]]} />
+        <RangeToggle value={range} onChange={setRange} options={[["1h", t(M.range1h)], ["24h", t(M.range24h)]]} />
       </div>
 
       {loading && !latest ? (
-        <p className="text-sm text-muted-foreground">Загрузка...</p>
+        <p className="text-sm text-muted-foreground">{t(M.loading)}</p>
       ) : !hasData ? (
         <p className="text-sm text-muted-foreground">
-          Метрики ещё не поступали. Агент собирает их по таймеру — данные появятся через минуту после подключения.
+          {t(M.noMetrics)}
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -123,7 +139,7 @@ export default function DeviceResources({ deviceId }: { deviceId: string }) {
           />
           <MetricCard
             icon={HardDrive}
-            label="Диск (система)"
+            label={t(M.diskSystem)}
             value={latest ? fmtPct(latest.disk_percent) : "—"}
             series={diskSeries}
             color="#eab308"
@@ -131,7 +147,7 @@ export default function DeviceResources({ deviceId }: { deviceId: string }) {
           />
           <MetricCard
             icon={Network}
-            label="Сеть"
+            label={t(M.network)}
             value={latest ? fmtBps(latest.net_rx_bps + latest.net_tx_bps) : "—"}
             sub={latest ? `↓ ${fmtBps(latest.net_rx_bps)}  ↑ ${fmtBps(latest.net_tx_bps)}` : ""}
             series={netSeries}
