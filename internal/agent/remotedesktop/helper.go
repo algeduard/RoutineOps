@@ -47,7 +47,13 @@ type injector interface {
 // RunHelper — точка входа хелпера. Открывает стрим RemoteDesktop, представляется
 // сервером выданным session_id (RDHello), затем гоняет цикл захвата и применяет
 // входящий ввод. Возвращает nil при штатном завершении (STOP/закрытие стрима).
-func RunHelper(ctx context.Context, dialer *transport.Dialer, sessionID string, log *slog.Logger) error {
+//
+// unattended (передаётся сервером в RemoteDesktopCommand.unattended по opt-in-политике
+// устройства): true ⇒ запрос согласия ПРОПУСКАЕТСЯ. Это снимает только consent-ГЕЙТ;
+// плашка «идёт сеанс» и серверный аудит старта/стопа СОХРАНЯЮТСЯ в обоих режимах.
+// false (дефолт) ⇒ обычный attended-поток (модальный запрос согласия). Пропуск НИКОГДА
+// не происходит по инициативе агента — только если сервер явно прислал unattended=true.
+func RunHelper(ctx context.Context, dialer *transport.Dialer, sessionID string, unattended bool, log *slog.Logger) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -120,10 +126,18 @@ func RunHelper(ctx context.Context, dialer *transport.Dialer, sessionID string, 
 		}
 	}()
 
-	// Согласие пользователя на устройстве (attended). Показываем модальный запрос в
-	// сессии пользователя ДО отправки кадров: без явного «Разрешить» сеанс не
+	// Согласие пользователя на устройстве. По умолчанию ATTENDED: показываем модальный
+	// запрос в сессии пользователя ДО отправки кадров — без явного «Разрешить» сеанс не
 	// начинается (fail-safe). Отменяется при смерти стрима/сессии (ctx).
-	if !requestConsent(ctx) {
+	//
+	// unattended (разрешён СЕРВЕРОМ по opt-in-политике устройства): запрос согласия
+	// пропускаем. Это снимает ТОЛЬКО consent-гейт — плашка «идёт сеанс» ниже и серверный
+	// аудит остаются. Пропуск возможен исключительно по флагу сервера: агент сам его
+	// никогда не инициирует (fail-safe — по умолчанию согласие требуется).
+	if unattended {
+		log.Info("remote desktop helper: unattended-сессия — запрос согласия пропущен (плашка+аудит сохраняются)",
+			slog.String("session_id", sessionID))
+	} else if !requestConsent(ctx) {
 		log.Info("remote desktop helper: пользователь отклонил доступ", slog.String("session_id", sessionID))
 		_ = stream.Send(statusMsg(pb.RDStatusCode_RD_STATUS_CODE_USER_DENIED, "пользователь отклонил удалённый доступ"))
 		// Дать статусу дойти до сервера: half-close + ждать закрытия стрима
@@ -137,8 +151,9 @@ func RunHelper(ctx context.Context, dialer *transport.Dialer, sessionID string, 
 	}
 	granted.Store(true)
 
-	// Плашка «идёт сеанс» на всё время сессии: пользователь видит активность не
-	// только в момент согласия, но и пока админ подключён.
+	// Плашка «идёт сеанс» на всё время сессии — ВСЕГДА, включая unattended: пользователь
+	// на устройстве должен видеть активность весь сеанс (unattended убирает подтверждение
+	// на старте, но НЕ видимость сеанса).
 	stopBanner := startSessionBanner()
 	defer stopBanner()
 

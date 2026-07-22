@@ -171,6 +171,10 @@ type Device struct {
 	DomainJoined   string `json:"domain_joined"` // "true"/"false"/""
 	TPM            string `json:"tpm"`           // "true"/"false"/""
 	SecureBoot     string `json:"secure_boot"`   // "true"/"false"/""
+	// RDUnattended — opt-in unattended-доступ удалённого рабочего стола (миграция 039).
+	// false по умолчанию: сеанс идёт с запросом согласия на устройстве. Читается в
+	// карточке, чтобы веб показал состояние тумблера. Мутация — it_admin+requireHuman.
+	RDUnattended bool `json:"rd_unattended"`
 	// Устройство может состоять в НЕСКОЛЬКИХ группах (device_group_members — m2m),
 	// поэтому это список, а не одна ссылка. Первая группа задаёт цвет рамки в UI.
 	Groups []DeviceGroupRef `json:"groups"`
@@ -371,7 +375,8 @@ func (db *DB) GetDevice(ctx context.Context, id string) (*Device, []SoftwareItem
        COALESCE(agent_version, ''), COALESCE(update_channel, 'stable'),
        COALESCE(arch, ''), COALESCE(console_user, ''), COALESCE(disk_encryption, ''),
        COALESCE(os_patch_date, ''), COALESCE(boot_time, 0), COALESCE(disk_free, ''),
-       COALESCE(domain_joined, ''), COALESCE(tpm, ''), COALESCE(secure_boot, '')
+       COALESCE(domain_joined, ''), COALESCE(tpm, ''), COALESCE(secure_boot, ''),
+       COALESCE(rd_unattended, false)
   FROM devices WHERE id = $1
  `, id).Scan(&d.ID, &d.Hostname, &d.OS, &d.OSVersion,
 		&d.IPAddress, &d.Status, &d.LockStatus, &d.LastSeenAt, &d.CreatedAt,
@@ -379,7 +384,8 @@ func (db *DB) GetDevice(ctx context.Context, id string) (*Device, []SoftwareItem
 		&d.AgentVersion, &d.UpdateChannel,
 		&d.Arch, &d.ConsoleUser, &d.DiskEncryption,
 		&d.OSPatchDate, &d.BootTime, &d.DiskFree,
-		&d.DomainJoined, &d.TPM, &d.SecureBoot)
+		&d.DomainJoined, &d.TPM, &d.SecureBoot,
+		&d.RDUnattended)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, nil

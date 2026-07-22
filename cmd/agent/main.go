@@ -1514,6 +1514,10 @@ func buildDialer(cfg *config.Config) (*transport.Dialer, error) {
 func runRemoteDesktopHelper(rest []string, log *slog.Logger) {
 	fs := flag.NewFlagSet("remote-desktop", flag.ContinueOnError)
 	sessionID := fs.String("session", "", "id сессии удалённого рабочего стола (выдаётся сервером)")
+	// -unattended: сервер разрешил пропустить запрос согласия для ЭТОЙ сессии (opt-in
+	// политика устройства, devices.rd_unattended). Дефолт false = attended (запрос
+	// согласия) — безопасный дефолт, даже если флаг не передан.
+	unattended := fs.Bool("unattended", false, "пропустить запрос согласия (разрешено сервером по политике устройства)")
 	cfg, err := config.Load(fs, rest)
 	if err != nil {
 		log.Error("конфигурация remote-desktop", slog.Any("error", err))
@@ -1528,7 +1532,7 @@ func runRemoteDesktopHelper(rest []string, log *slog.Logger) {
 		log.Error("mTLS remote-desktop", slog.Any("error", err))
 		os.Exit(1)
 	}
-	if err := remotedesktop.RunHelper(context.Background(), dialer, *sessionID, log); err != nil {
+	if err := remotedesktop.RunHelper(context.Background(), dialer, *sessionID, *unattended, log); err != nil {
 		log.Error("remote-desktop: хелпер завершился с ошибкой", slog.Any("error", err))
 		os.Exit(1)
 	}
@@ -1740,7 +1744,7 @@ func runAgent(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	// Хелпер получает те же параметры подключения, что у службы, + -session, сам
 	// открывает bidi-стрим RemoteDesktop и возвращает session_id. Вне Windows
 	// launchRemoteDesktopHelper вернёт ошибку → handleRemoteDesktop её залогирует.
-	executor.SetRemoteDesktopLauncher(func(sessionID string) error {
+	executor.SetRemoteDesktopLauncher(func(sessionID string, unattended bool) error {
 		args := []string{
 			"remote-desktop",
 			"-session", sessionID,
@@ -1749,6 +1753,11 @@ func runAgent(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			"-cert", cfg.CertFile,
 			"-key", cfg.KeyFile,
 			"-ca", cfg.CAFile,
+		}
+		// unattended-флаг добавляем ТОЛЬКО когда сервер его разрешил (opt-in-политика
+		// устройства). Его отсутствие = attended (запрос согласия) — безопасный дефолт.
+		if unattended {
+			args = append(args, "-unattended")
 		}
 		return launchRemoteDesktopHelper(self, args, log)
 	})

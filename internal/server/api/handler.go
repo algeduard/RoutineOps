@@ -231,6 +231,11 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 			r.Post("/devices/{id}/unlock", h.unlockDevice)
 			// Privacy-тумблер сбора аналитики приложений (включение слежки — с аудитом).
 			r.Put("/devices/{id}/telemetry-config", h.setDeviceTelemetryConfig)
+			// Opt-in unattended-доступ удалённого рабочего стола (миграция 039). requireHuman:
+			// включение снимает запрос согласия пользователя для будущих сеансов — решение
+			// человека, не сервисного токена. Аудит в самом хендлере. Плашка «идёт сеанс» и
+			// аудит сеансов сохраняются (unattended убирает подтверждение, не видимость).
+			r.With(requireHuman).Put("/devices/{id}/rd-unattended", h.setDeviceRDUnattended)
 			// requireHuman: вывод из эксплуатации необратим и деструктивен — агент сносит
 			// серт/службу/состояние, устройство уходит в терминальный decommissioned.
 			// Автоматике/сервисному токену такое запрещаем (🔴 правило requireHuman).

@@ -111,7 +111,12 @@ type Executor struct {
 	// Инъекция из cmd/agent по тому же паттерну, что onDecommission: executor не
 	// знает про winsession/пути/серты. nil = фича недоступна (не Windows/не
 	// сконфигурировано) → команда remote_desktop отклоняется, а не выполняется тихо.
-	startRemoteDesktop func(sessionID string) error
+	//
+	// unattended приходит из RemoteDesktopCommand.unattended (сервер выставляет его
+	// по opt-in-политике устройства): true ⇒ хелпер пропустит запрос согласия, но
+	// плашка «идёт сеанс» и аудит остаются. Значение прокидывается хелперу флагом
+	// командной строки — executor его лишь ретранслирует, не интерпретирует.
+	startRemoteDesktop func(sessionID string, unattended bool) error
 }
 
 // LockApplier применяет команды блокировки/разблокировки устройства (реализуется
@@ -149,7 +154,9 @@ func (e *Executor) SetDecommissioner(f func(requestID, reason string)) { e.onDec
 // SetRemoteDesktopLauncher подключает запуск хелпера удалённого рабочего стола.
 // nil (по умолчанию) → команда remote_desktop отклоняется. Вызывать до старта
 // приёма задач.
-func (e *Executor) SetRemoteDesktopLauncher(f func(sessionID string) error) { e.startRemoteDesktop = f }
+func (e *Executor) SetRemoteDesktopLauncher(f func(sessionID string, unattended bool) error) {
+	e.startRemoteDesktop = f
+}
 
 // NewExecutor creates an executor. statePath — файл для персистентной идемпотентности
 // (""=только память). enqueue — durable-очередь доставки результатов (outbox);
@@ -355,7 +362,15 @@ func (e *Executor) handleRemoteDesktop(rd *pb.RemoteDesktopCommand) {
 		e.log.Warn("remote desktop: пустой session_id — команда пропущена")
 		return
 	}
-	if err := e.startRemoteDesktop(sid); err != nil {
+	// unattended приходит из команды (сервер выставил по opt-in-политике устройства):
+	// true ⇒ хелпер пропустит запрос согласия. Executor лишь прокидывает флаг —
+	// решение о пропуске уже принято сервером на основе devices.rd_unattended.
+	unattended := rd.GetUnattended()
+	if unattended {
+		e.log.Info("remote desktop: unattended-сессия (согласие пропускается, плашка+аудит остаются)",
+			slog.String("session_id", sid))
+	}
+	if err := e.startRemoteDesktop(sid, unattended); err != nil {
 		e.log.Error("remote desktop: запуск хелпера", slog.String("session_id", sid), slog.Any("error", err))
 	}
 }

@@ -128,6 +128,13 @@ message Task {
 message RemoteDesktopCommand {
   string session_id = 1;          // выдан сервером; хелпер вернёт его в RDHello
   RemoteDesktopAction action = 2; // START / STOP
+  // unattended (аддитивно, ADR-4): сервер сообщает, что для ЭТОЙ сессии на ЭТОМ
+  // устройстве включён opt-in unattended-доступ (devices.rd_unattended). Тогда
+  // хелпер ПРОПУСКАЕТ запрос согласия пользователя, но плашка «идёт сеанс» и аудит
+  // старта/стопа ОСТАЮТСЯ (unattended снимает подтверждение, не видимость). DEFAULT
+  // false: обычный attended-поток (запрос согласия) сохраняется, пока устройство
+  // явно не opt-in — consent НИКОГДА не пропускается для не-opt-in устройства.
+  bool unattended = 3;
 }
 enum RemoteDesktopAction {
   REMOTE_DESKTOP_ACTION_UNSPECIFIED = 0;
