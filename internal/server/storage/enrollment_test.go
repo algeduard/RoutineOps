@@ -69,8 +69,8 @@ func TestEnrollDevice_MarksTokenUsedAndDeviceEnrolled(t *testing.T) {
 
 	tokenRec, _ := db.GetEnrollmentToken(context.Background(), tok)
 
-	const fp = "abc123fingerprintdeadbeef"
-	if err := db.EnrollDevice(context.Background(), tokenRec.ID, d.ID, "CERT-SERIAL-123", fp); err != nil {
+	fp := fmt.Sprintf("fp-enroll-%s", uniq(t))
+	if err := db.EnrollDevice(context.Background(), tokenRec.ID, d.ID, fmt.Sprintf("CERT-SERIAL-%s", uniq(t)), fp); err != nil {
 		t.Fatalf("EnrollDevice: %v", err)
 	}
 
