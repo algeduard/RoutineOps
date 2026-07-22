@@ -22,8 +22,9 @@ type activityAggregator struct {
 }
 
 type appKey struct {
-	day string
-	app string
+	day   string
+	app   string
+	title string // заголовок окна; "" когда capture_window_titles выключен
 }
 
 type dayAcc struct {
@@ -40,7 +41,7 @@ func newActivityAggregator() *activityAggregator {
 
 // record учитывает seconds истёкшего времени: при active — в активное время дня и
 // (если известно foreground-приложение) в его счётчик; иначе — в простой.
-func (a *activityAggregator) record(day, app string, active bool, seconds int64) {
+func (a *activityAggregator) record(day, app, title string, active bool, seconds int64) {
 	if seconds <= 0 || day == "" {
 		return
 	}
@@ -54,7 +55,7 @@ func (a *activityAggregator) record(day, app string, active bool, seconds int64)
 	if active {
 		d.active += seconds
 		if app != "" {
-			a.apps[appKey{day, app}] += seconds
+			a.apps[appKey{day, app, title}] += seconds
 		}
 	} else {
 		d.idle += seconds
@@ -67,7 +68,7 @@ func (a *activityAggregator) drain() (apps []*pb.AppUsageEntry, days []*pb.Daily
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for k, s := range a.apps {
-		apps = append(apps, &pb.AppUsageEntry{Day: k.day, AppName: k.app, ForegroundSeconds: s})
+		apps = append(apps, &pb.AppUsageEntry{Day: k.day, AppName: k.app, WindowTitle: k.title, ForegroundSeconds: s})
 	}
 	for day, d := range a.days {
 		days = append(days, &pb.DailyActivity{Day: day, ActiveSeconds: d.active, IdleSeconds: d.idle})
@@ -84,7 +85,7 @@ func (a *activityAggregator) restore(apps []*pb.AppUsageEntry, days []*pb.DailyA
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, e := range apps {
-		a.apps[appKey{e.Day, e.AppName}] += e.ForegroundSeconds
+		a.apps[appKey{e.Day, e.AppName, e.WindowTitle}] += e.ForegroundSeconds
 	}
 	for _, d := range days {
 		acc := a.days[d.Day]

@@ -344,10 +344,12 @@ export interface ResourceMetric {
   net_tx_bps: number
 }
 
-// AppUsageRow — использование приложения за день (агрегат).
+// AppUsageRow — использование приложения за день (агрегат). window_title непусто
+// только когда включён сбор заголовков окон (capture_window_titles).
 export interface AppUsageRow {
   day: string
   app_name: string
+  window_title: string
   foreground_seconds: number
 }
 
@@ -363,6 +365,7 @@ export interface DailyActivityRow {
 // объяснил пустой отчёт (сбор выключен по умолчанию).
 export interface AppUsageResponse {
   app_usage_enabled: boolean
+  capture_window_titles: boolean
   apps: AppUsageRow[]
   days: DailyActivityRow[]
 }
@@ -370,6 +373,7 @@ export interface AppUsageResponse {
 // TelemetryConfig — GET/PUT /devices/{id}/telemetry-config (PUT только it_admin).
 export interface TelemetryConfig {
   app_usage_enabled: boolean
+  capture_window_titles: boolean
 }
 
 // LicenseStatus — снимок энтайтлмента (GET/POST /license, только enterprise-сборка;

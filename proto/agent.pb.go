@@ -3123,8 +3123,12 @@ type AppUsageEntry struct {
 	Day               string                 `protobuf:"bytes,1,opt,name=day,proto3" json:"day,omitempty"`                                                       // локальный день устройства, ISO "2006-01-02"
 	AppName           string                 `protobuf:"bytes,2,opt,name=app_name,json=appName,proto3" json:"app_name,omitempty"`                                // имя foreground-процесса (напр. "chrome.exe")
 	ForegroundSeconds int64                  `protobuf:"varint,3,opt,name=foreground_seconds,json=foregroundSeconds,proto3" json:"foreground_seconds,omitempty"` // дельта секунд на переднем плане (при активном вводе)
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Заголовок активного окна (напр. вкладка браузера) — грубо показывает, ЧЕМ занят
+	// пользователь/на каком сайте. ЧУВСТВИТЕЛЬНО: собирается ТОЛЬКО при отдельном
+	// серверном флаге capture_window_titles (отдельно от app_usage_enabled), иначе "".
+	WindowTitle   string `protobuf:"bytes,4,opt,name=window_title,json=windowTitle,proto3" json:"window_title,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AppUsageEntry) Reset() {
@@ -3176,6 +3180,13 @@ func (x *AppUsageEntry) GetForegroundSeconds() int64 {
 		return x.ForegroundSeconds
 	}
 	return 0
+}
+
+func (x *AppUsageEntry) GetWindowTitle() string {
+	if x != nil {
+		return x.WindowTitle
+	}
+	return ""
 }
 
 // Активное/простойное время за день (ДЕЛЬТА с прошлой отправки).
@@ -3382,8 +3393,11 @@ type FetchTelemetryConfigResponse struct {
 	// Опциональный серверный оверрайд интервала сэмплирования ресурсов (секунды).
 	// 0 = использовать агентский дефолт.
 	MetricsSampleSeconds int64 `protobuf:"varint,2,opt,name=metrics_sample_seconds,json=metricsSampleSeconds,proto3" json:"metrics_sample_seconds,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Собирать заголовки активных окон (напр. вкладки браузера) в app-usage. ОТДЕЛЬНЫЙ
+	// privacy-гейт (строже app_usage_enabled): дефолт false, включает только it_admin.
+	CaptureWindowTitles bool `protobuf:"varint,3,opt,name=capture_window_titles,json=captureWindowTitles,proto3" json:"capture_window_titles,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *FetchTelemetryConfigResponse) Reset() {
@@ -3428,6 +3442,13 @@ func (x *FetchTelemetryConfigResponse) GetMetricsSampleSeconds() int64 {
 		return x.MetricsSampleSeconds
 	}
 	return 0
+}
+
+func (x *FetchTelemetryConfigResponse) GetCaptureWindowTitles() bool {
+	if x != nil {
+		return x.CaptureWindowTitles
+	}
+	return false
 }
 
 // Агент-хелпер → Сервер.
@@ -4425,11 +4446,12 @@ const file_proto_agent_proto_rawDesc = "" +
 	"\x15ResourceMetricsReport\x124\n" +
 	"\asamples\x18\x01 \x03(\v2\x1a.routineops.ResourceSampleR\asamples\"0\n" +
 	"\x12ResourceMetricsAck\x12\x1a\n" +
-	"\breceived\x18\x01 \x01(\bR\breceived\"k\n" +
+	"\breceived\x18\x01 \x01(\bR\breceived\"\x8e\x01\n" +
 	"\rAppUsageEntry\x12\x10\n" +
 	"\x03day\x18\x01 \x01(\tR\x03day\x12\x19\n" +
 	"\bapp_name\x18\x02 \x01(\tR\aappName\x12-\n" +
-	"\x12foreground_seconds\x18\x03 \x01(\x03R\x11foregroundSeconds\"k\n" +
+	"\x12foreground_seconds\x18\x03 \x01(\x03R\x11foregroundSeconds\x12!\n" +
+	"\fwindow_title\x18\x04 \x01(\tR\vwindowTitle\"k\n" +
 	"\rDailyActivity\x12\x10\n" +
 	"\x03day\x18\x01 \x01(\tR\x03day\x12%\n" +
 	"\x0eactive_seconds\x18\x02 \x01(\x03R\ractiveSeconds\x12!\n" +
@@ -4439,10 +4461,11 @@ const file_proto_agent_proto_rawDesc = "" +
 	"\x04days\x18\x02 \x03(\v2\x19.routineops.DailyActivityR\x04days\")\n" +
 	"\vAppUsageAck\x12\x1a\n" +
 	"\breceived\x18\x01 \x01(\bR\breceived\"\x1d\n" +
-	"\x1bFetchTelemetryConfigRequest\"\x80\x01\n" +
+	"\x1bFetchTelemetryConfigRequest\"\xb4\x01\n" +
 	"\x1cFetchTelemetryConfigResponse\x12*\n" +
 	"\x11app_usage_enabled\x18\x01 \x01(\bR\x0fappUsageEnabled\x124\n" +
-	"\x16metrics_sample_seconds\x18\x02 \x01(\x03R\x14metricsSampleSeconds\"\xb2\x01\n" +
+	"\x16metrics_sample_seconds\x18\x02 \x01(\x03R\x14metricsSampleSeconds\x122\n" +
+	"\x15capture_window_titles\x18\x03 \x01(\bR\x13captureWindowTitles\"\xb2\x01\n" +
 	"\x16RemoteDesktopClientMsg\x12+\n" +
 	"\x05hello\x18\x01 \x01(\v2\x13.routineops.RDHelloH\x00R\x05hello\x120\n" +
 	"\x05frame\x18\x02 \x01(\v2\x18.routineops.RDVideoFrameH\x00R\x05frame\x12.\n" +

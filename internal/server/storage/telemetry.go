@@ -137,6 +137,7 @@ func round2(v float64) float64 {
 type AppUsageInput struct {
 	Day               string // ISO "2006-01-02"
 	AppName           string
+	WindowTitle       string // "" когда capture_window_titles выключен
 	ForegroundSeconds int64
 }
 type DailyActivityInput struct {
@@ -149,6 +150,7 @@ type DailyActivityInput struct {
 type AppUsageRow struct {
 	Day               string `json:"day"`
 	AppName           string `json:"app_name"`
+	WindowTitle       string `json:"window_title"`
 	ForegroundSeconds int64  `json:"foreground_seconds"`
 }
 type DailyActivityRow struct {
@@ -171,12 +173,12 @@ func (db *DB) UpsertAppUsage(ctx context.Context, deviceID string, entries []App
 			continue
 		}
 		batch.Queue(`
-			INSERT INTO device_app_usage (device_id, day, app_name, foreground_seconds, updated_at)
-			VALUES ($1, $2, $3, $4, now())
-			ON CONFLICT (device_id, day, app_name)
+			INSERT INTO device_app_usage (device_id, day, app_name, window_title, foreground_seconds, updated_at)
+			VALUES ($1, $2, $3, $4, $5, now())
+			ON CONFLICT (device_id, day, app_name, window_title)
 			DO UPDATE SET foreground_seconds = device_app_usage.foreground_seconds + EXCLUDED.foreground_seconds,
 			              updated_at = now()`,
-			deviceID, day, e.AppName, e.ForegroundSeconds)
+			deviceID, day, e.AppName, e.WindowTitle, e.ForegroundSeconds)
 		queued++
 	}
 	if queued == 0 {
@@ -228,7 +230,7 @@ func (db *DB) UpsertDailyActivity(ctx context.Context, deviceID string, days []D
 // дням с даты since (включительно).
 func (db *DB) GetAppUsage(ctx context.Context, deviceID string, since time.Time) ([]AppUsageRow, []DailyActivityRow, error) {
 	appRows, err := db.pool.Query(ctx, `
-		SELECT day, app_name, foreground_seconds
+		SELECT day, app_name, window_title, foreground_seconds
 		FROM device_app_usage
 		WHERE device_id = $1 AND day >= $2::date
 		ORDER BY foreground_seconds DESC, app_name`, deviceID, since)
@@ -240,7 +242,7 @@ func (db *DB) GetAppUsage(ctx context.Context, deviceID string, since time.Time)
 	for appRows.Next() {
 		var a AppUsageRow
 		var day time.Time
-		if err := appRows.Scan(&day, &a.AppName, &a.ForegroundSeconds); err != nil {
+		if err := appRows.Scan(&day, &a.AppName, &a.WindowTitle, &a.ForegroundSeconds); err != nil {
 			return nil, nil, err
 		}
 		a.Day = day.Format(dayLayout)
@@ -310,6 +312,50 @@ func (db *DB) GetAppUsageEnabled(ctx context.Context, deviceID string) (enabled,
 func (db *DB) SetAppUsageEnabled(ctx context.Context, deviceID string, enabled bool) (found bool, err error) {
 	tag, err := db.pool.Exec(ctx,
 		`UPDATE devices SET app_usage_enabled = $2 WHERE id = $1`, deviceID, enabled)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// ── Privacy-тумблер сбора заголовков окон (отдельный, строже app_usage) ───────
+
+// GetCaptureWindowTitlesByFingerprint отдаёт флаг сбора заголовков окон по
+// mTLS-серту (FetchTelemetryConfig + серверный гейт ReportAppUsage). Неизвестный
+// серт → false.
+func (db *DB) GetCaptureWindowTitlesByFingerprint(ctx context.Context, fingerprint string) (bool, error) {
+	var enabled bool
+	err := db.pool.QueryRow(ctx,
+		`SELECT capture_window_titles FROM devices WHERE certificate_fingerprint = $1`, fingerprint).
+		Scan(&enabled)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return enabled, nil
+}
+
+// GetCaptureWindowTitles отдаёт флаг по deviceID (REST GET конфига). found=false,
+// если устройства нет.
+func (db *DB) GetCaptureWindowTitles(ctx context.Context, deviceID string) (enabled, found bool, err error) {
+	err = db.pool.QueryRow(ctx,
+		`SELECT capture_window_titles FROM devices WHERE id = $1`, deviceID).Scan(&enabled)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, false, nil
+		}
+		return false, false, err
+	}
+	return enabled, true, nil
+}
+
+// SetCaptureWindowTitles переключает сбор заголовков окон. found=false, если
+// устройства нет.
+func (db *DB) SetCaptureWindowTitles(ctx context.Context, deviceID string, enabled bool) (found bool, err error) {
+	tag, err := db.pool.Exec(ctx,
+		`UPDATE devices SET capture_window_titles = $2 WHERE id = $1`, deviceID, enabled)
 	if err != nil {
 		return false, err
 	}

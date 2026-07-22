@@ -91,9 +91,21 @@ func (g *Gateway) ReportAppUsage(ctx context.Context, req *pb.AppUsageReport) (*
 		return &pb.AppUsageAck{Received: true}, nil
 	}
 
+	// Серверный гейт заголовков окон (defense-in-depth): даже если агент прислал
+	// заголовки, при выключенном capture_window_titles обнуляем их — не сохраняем.
+	captureTitles, err := g.db.GetCaptureWindowTitlesByFingerprint(ctx, fingerprint)
+	if err != nil {
+		g.logger.Error("app usage: check title flag", "device_id", deviceID, "err", err)
+		return nil, status.Errorf(codes.Unavailable, "check title flag: %v", err)
+	}
+
 	apps := make([]storage.AppUsageInput, 0, len(req.Apps))
 	for _, a := range req.Apps {
-		apps = append(apps, storage.AppUsageInput{Day: a.Day, AppName: a.AppName, ForegroundSeconds: a.ForegroundSeconds})
+		title := ""
+		if captureTitles {
+			title = a.WindowTitle
+		}
+		apps = append(apps, storage.AppUsageInput{Day: a.Day, AppName: a.AppName, WindowTitle: title, ForegroundSeconds: a.ForegroundSeconds})
 	}
 	days := make([]storage.DailyActivityInput, 0, len(req.Days))
 	for _, d := range req.Days {
@@ -132,8 +144,13 @@ func (g *Gateway) FetchTelemetryConfig(ctx context.Context, _ *pb.FetchTelemetry
 		g.logger.Error("fetch telemetry config", "err", err)
 		return nil, status.Errorf(codes.Internal, "fetch telemetry config: %v", err)
 	}
+	captureTitles, err := g.db.GetCaptureWindowTitlesByFingerprint(ctx, fingerprint)
+	if err != nil {
+		g.logger.Error("fetch telemetry config: title flag", "err", err)
+		return nil, status.Errorf(codes.Internal, "fetch telemetry config: %v", err)
+	}
 	// metrics_sample_seconds=0 → агент использует свой дефолт (серверный оверрайд не задаём).
-	return &pb.FetchTelemetryConfigResponse{AppUsageEnabled: enabled}, nil
+	return &pb.FetchTelemetryConfigResponse{AppUsageEnabled: enabled, CaptureWindowTitles: captureTitles}, nil
 }
 
 // clampSampleTime защищает ts метрик от нулевых/будущих/слишком старых значений

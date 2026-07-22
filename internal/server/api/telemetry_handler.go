@@ -54,9 +54,10 @@ func (h *Handler) getDeviceMetricsLatest(w http.ResponseWriter, r *http.Request)
 }
 
 type appUsageResponse struct {
-	AppUsageEnabled bool                       `json:"app_usage_enabled"`
-	Apps            []storage.AppUsageRow      `json:"apps"`
-	Days            []storage.DailyActivityRow `json:"days"`
+	AppUsageEnabled     bool                       `json:"app_usage_enabled"`
+	CaptureWindowTitles bool                       `json:"capture_window_titles"`
+	Apps                []storage.AppUsageRow      `json:"apps"`
+	Days                []storage.DailyActivityRow `json:"days"`
 }
 
 // getDeviceAppUsage отдаёт отчёт активности приложений: топ приложений по времени и
@@ -81,20 +82,26 @@ func (h *Handler) getDeviceAppUsage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	titles, _, err := h.db.GetCaptureWindowTitles(r.Context(), id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	if apps == nil {
 		apps = []storage.AppUsageRow{}
 	}
 	if activity == nil {
 		activity = []storage.DailyActivityRow{}
 	}
-	writeJSON(w, http.StatusOK, appUsageResponse{AppUsageEnabled: enabled, Apps: apps, Days: activity})
+	writeJSON(w, http.StatusOK, appUsageResponse{AppUsageEnabled: enabled, CaptureWindowTitles: titles, Apps: apps, Days: activity})
 }
 
 type telemetryConfigResponse struct {
-	AppUsageEnabled bool `json:"app_usage_enabled"`
+	AppUsageEnabled     bool `json:"app_usage_enabled"`
+	CaptureWindowTitles bool `json:"capture_window_titles"`
 }
 
-// getDeviceTelemetryConfig отдаёт текущее состояние privacy-флага сбора аналитики.
+// getDeviceTelemetryConfig отдаёт текущее состояние privacy-флагов сбора аналитики.
 func (h *Handler) getDeviceTelemetryConfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	enabled, found, err := h.db.GetAppUsageEnabled(r.Context(), id)
@@ -106,16 +113,25 @@ func (h *Handler) getDeviceTelemetryConfig(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, http.StatusOK, telemetryConfigResponse{AppUsageEnabled: enabled})
+	titles, _, err := h.db.GetCaptureWindowTitles(r.Context(), id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, telemetryConfigResponse{AppUsageEnabled: enabled, CaptureWindowTitles: titles})
 }
 
 type setTelemetryConfigRequest struct {
-	// Указатель, чтобы отличить отсутствие поля от явного false.
-	AppUsageEnabled *bool `json:"app_usage_enabled"`
+	// Указатели, чтобы отличить отсутствие поля от явного false. Можно задавать
+	// каждый флаг независимо.
+	AppUsageEnabled     *bool `json:"app_usage_enabled"`
+	CaptureWindowTitles *bool `json:"capture_window_titles"`
 }
 
-// setDeviceTelemetryConfig включает/выключает сбор аналитики приложений для
-// устройства (privacy/consent). it_admin + аудит: включение слежки прослеживается.
+// setDeviceTelemetryConfig включает/выключает сбор аналитики приложений и/или
+// заголовков окон для устройства (privacy/consent). it_admin + аудит: включение
+// слежки прослеживается. Заголовки окон (capture_window_titles) — более
+// чувствительный сбор, отдельный флаг.
 func (h *Handler) setDeviceTelemetryConfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var req setTelemetryConfigRequest
@@ -123,21 +139,39 @@ func (h *Handler) setDeviceTelemetryConfig(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if req.AppUsageEnabled == nil {
-		http.Error(w, "app_usage_enabled is required", http.StatusBadRequest)
+	if req.AppUsageEnabled == nil && req.CaptureWindowTitles == nil {
+		http.Error(w, "app_usage_enabled or capture_window_titles is required", http.StatusBadRequest)
 		return
 	}
-	found, err := h.db.SetAppUsageEnabled(r.Context(), id, *req.AppUsageEnabled)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+	details := map[string]bool{}
+	if req.AppUsageEnabled != nil {
+		found, err := h.db.SetAppUsageEnabled(r.Context(), id, *req.AppUsageEnabled)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !found {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		details["app_usage_enabled"] = *req.AppUsageEnabled
 	}
-	if !found {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
+	if req.CaptureWindowTitles != nil {
+		found, err := h.db.SetCaptureWindowTitles(r.Context(), id, *req.CaptureWindowTitles)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !found {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		details["capture_window_titles"] = *req.CaptureWindowTitles
 	}
 	claims := r.Context().Value(claimsKey).(*jwtClaims)
-	h.audit(r.Context(), claims.UserID, claims.Email, "set_telemetry_config", "device", id,
-		map[string]bool{"app_usage_enabled": *req.AppUsageEnabled})
-	writeJSON(w, http.StatusOK, telemetryConfigResponse{AppUsageEnabled: *req.AppUsageEnabled})
+	h.audit(r.Context(), claims.UserID, claims.Email, "set_telemetry_config", "device", id, details)
+	// Возвращаем актуальное состояние обоих флагов.
+	enabled, _, _ := h.db.GetAppUsageEnabled(r.Context(), id)
+	titles, _, _ := h.db.GetCaptureWindowTitles(r.Context(), id)
+	writeJSON(w, http.StatusOK, telemetryConfigResponse{AppUsageEnabled: enabled, CaptureWindowTitles: titles})
 }

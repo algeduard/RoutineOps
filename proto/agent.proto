@@ -489,6 +489,10 @@ message AppUsageEntry {
   string day                = 1; // локальный день устройства, ISO "2006-01-02"
   string app_name           = 2; // имя foreground-процесса (напр. "chrome.exe")
   int64  foreground_seconds = 3; // дельта секунд на переднем плане (при активном вводе)
+  // Заголовок активного окна (напр. вкладка браузера) — грубо показывает, ЧЕМ занят
+  // пользователь/на каком сайте. ЧУВСТВИТЕЛЬНО: собирается ТОЛЬКО при отдельном
+  // серверном флаге capture_window_titles (отдельно от app_usage_enabled), иначе "".
+  string window_title       = 4;
 }
 
 // Активное/простойное время за день (ДЕЛЬТА с прошлой отправки).
@@ -517,6 +521,9 @@ message FetchTelemetryConfigResponse {
   // Опциональный серверный оверрайд интервала сэмплирования ресурсов (секунды).
   // 0 = использовать агентский дефолт.
   int64 metrics_sample_seconds = 2;
+  // Собирать заголовки активных окон (напр. вкладки браузера) в app-usage. ОТДЕЛЬНЫЙ
+  // privacy-гейт (строже app_usage_enabled): дефолт false, включает только it_admin.
+  bool  capture_window_titles = 3;
 }
 
 service AgentService {

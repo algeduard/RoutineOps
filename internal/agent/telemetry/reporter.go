@@ -44,12 +44,15 @@ type Reporter struct {
 
 	// serverAppUsage — серверный флаг app_usage_enabled (обновляется configLoop).
 	serverAppUsage atomic.Bool
+	// serverCaptureTitles — серверный флаг capture_window_titles (configLoop): собирать
+	// ли заголовки активных окон. Отдельный, более строгий privacy-гейт.
+	serverCaptureTitles atomic.Bool
 
 	// Тест-швы: продакшн-значения проставляются в Run.
 	sendMetrics   func(ctx context.Context, r *pb.ResourceMetricsReport) error
 	sendAppUsage  func(ctx context.Context, r *pb.AppUsageReport) error
 	fetchConfig   func(ctx context.Context) (*pb.FetchTelemetryConfigResponse, error)
-	foregroundApp func() (string, error)
+	foregroundApp func(withTitle bool) (app, title string, err error)
 	idleDuration  func() (time.Duration, error)
 	now           func() time.Time
 }
@@ -183,7 +186,7 @@ func (r *Reporter) activityLoop(ctx context.Context) {
 			if elapsed > maxElapsed {
 				elapsed = int64(r.SampleInterval.Seconds())
 			}
-			app, err := r.foregroundApp()
+			app, title, err := r.foregroundApp(r.serverCaptureTitles.Load())
 			if err != nil {
 				r.Log.Debug("telemetry: foreground-приложение", slog.Any("error", err))
 			}
@@ -192,7 +195,7 @@ func (r *Reporter) activityLoop(ctx context.Context) {
 				r.Log.Debug("telemetry: idle-время", slog.Any("error", err))
 			}
 			active := idle < r.IdleThreshold
-			agg.record(n.Format("2006-01-02"), app, active, elapsed)
+			agg.record(n.Format("2006-01-02"), app, title, active, elapsed)
 		case <-reportT.C:
 			if !r.serverAppUsage.Load() || agg.empty() {
 				continue
@@ -220,6 +223,10 @@ func (r *Reporter) configLoop(ctx context.Context) {
 		if r.serverAppUsage.Swap(cfg.GetAppUsageEnabled()) != cfg.GetAppUsageEnabled() {
 			r.Log.Info("telemetry: серверный флаг app_usage_enabled изменён",
 				slog.Bool("enabled", cfg.GetAppUsageEnabled()))
+		}
+		if r.serverCaptureTitles.Swap(cfg.GetCaptureWindowTitles()) != cfg.GetCaptureWindowTitles() {
+			r.Log.Info("telemetry: серверный флаг capture_window_titles изменён",
+				slog.Bool("enabled", cfg.GetCaptureWindowTitles()))
 		}
 	}
 	poll()

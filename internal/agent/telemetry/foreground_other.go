@@ -16,6 +16,6 @@ var errAppUsageUnsupported = errors.New("app-usage collection not supported on t
 // appUsageSupported — app-usage на этой платформе не реализован.
 func appUsageSupported() bool { return false }
 
-func foregroundApp() (string, error) { return "", errAppUsageUnsupported }
+func foregroundApp(bool) (string, string, error) { return "", "", errAppUsageUnsupported }
 
 func idleDuration() (time.Duration, error) { return 0, errAppUsageUnsupported }
