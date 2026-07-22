@@ -12,12 +12,14 @@ func TestCleanupOldData_DeletesOldRecords(t *testing.T) {
 	db := newDB(t)
 	ctx := context.Background()
 
-	// создать device
+	// создать device (уникальный отпечаток: БД в пакете общая, -count не должен
+	// переиспользовать девайс и заносить в него алерты прошлой итерации)
+	fp := "fp-cleanup-" + uniq(t)
 	_ = db.UpsertDeviceHeartbeat(ctx, storage.HeartbeatData{
-		CertFingerprint: "fp-cleanup", DeviceID: "dev-cleanup",
+		CertFingerprint: fp, DeviceID: "dev-cleanup",
 		CertCN: "dev-cleanup", IPAddress: "127.0.0.1",
 	})
-	devID, _ := db.GetDeviceIDByFingerprint(ctx, "fp-cleanup")
+	devID, _ := db.GetDeviceIDByFingerprint(ctx, fp)
 
 	// создать алерт и ПРИНЯТЬ его: retention удаляет только принятые старые алерты
 	// (непринятые сохраняются — см. CleanupOldData и TestCleanupOldData_PreservesUnacknowledged).
@@ -50,11 +52,12 @@ func TestCleanupOldData_PreservesUnacknowledged(t *testing.T) {
 	db := newDB(t)
 	ctx := context.Background()
 
+	fp := "fp-cleanup-unack-" + uniq(t)
 	_ = db.UpsertDeviceHeartbeat(ctx, storage.HeartbeatData{
-		CertFingerprint: "fp-cleanup-unack", DeviceID: "dev-cleanup-unack",
+		CertFingerprint: fp, DeviceID: "dev-cleanup-unack",
 		CertCN: "dev-cleanup-unack", IPAddress: "127.0.0.1",
 	})
-	devID, _ := db.GetDeviceIDByFingerprint(ctx, "fp-cleanup-unack")
+	devID, _ := db.GetDeviceIDByFingerprint(ctx, fp)
 	_, _ = db.CreateAlert(ctx, devID, "AGENT_UNREACHABLE", "test", "")
 
 	pool, _ := pgxpool.New(ctx, sharedDSN)
@@ -75,11 +78,12 @@ func TestCleanupOldData_PreservesRecentRecords(t *testing.T) {
 	db := newDB(t)
 	ctx := context.Background()
 
+	fp := "fp-cleanup-recent-" + uniq(t)
 	_ = db.UpsertDeviceHeartbeat(ctx, storage.HeartbeatData{
-		CertFingerprint: "fp-cleanup-recent", DeviceID: "dev-cleanup-recent",
+		CertFingerprint: fp, DeviceID: "dev-cleanup-recent",
 		CertCN: "dev-cleanup-recent", IPAddress: "127.0.0.1",
 	})
-	devID, _ := db.GetDeviceIDByFingerprint(ctx, "fp-cleanup-recent")
+	devID, _ := db.GetDeviceIDByFingerprint(ctx, fp)
 	_, _ = db.CreateAlert(ctx, devID, "FORBIDDEN_SOFTWARE", "test", "")
 
 	n, err := db.CleanupOldData(ctx, 7, 7)
