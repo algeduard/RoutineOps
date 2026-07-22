@@ -12,9 +12,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-  target: 'https://localhost:8081',
-  secure: false,
-},
+        target: 'https://localhost:8081',
+        secure: false,
+        ws: true, // проксировать WebSocket (эндпоинт удалённого рабочего стола)
+      },
     },
   },
 })
