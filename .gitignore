@@ -84,6 +84,7 @@ build/pkg/*.pkg
 # Windows .syso — версионный билд-артефакт (manifest + PE-VERSIONINFO),
 # генерится `make syso-win`/`build-win` из cmd/agent/versioninfo.json + VERSION.
 cmd/agent/rsrc_windows_amd64.syso
+cmd/agent/rsrc_windows_arm64.syso
 
 # encrypted backup of release signing key
 release_ed25519.pem*

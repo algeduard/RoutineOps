@@ -15,6 +15,10 @@
 .PARAMETER Out       Имя выходного MSI (по умолчанию RoutineOps-agent.msi).
 .PARAMETER PfxPath   PFX для подписи MSI (опц.). .PARAMETER PfxPassword Пароль PFX (опц.).
 .PARAMETER TimestampUrl  RFC3161-сервер меток времени (опц.).
+.PARAMETER Arch      Архитектура WiX-пакета: x64 (по умолчанию) или arm64. Должна
+                     совпадать с архитектурой упаковываемого mdm-agent.exe (make
+                     build-win → x64, make build-win-arm64 → arm64). arm64-MSI пока
+                     не проверяется в CI — см. build/msi/README.md.
 #>
 param(
   [string]$ExePath = "$PSScriptRoot\mdm-agent.exe",
@@ -22,7 +26,9 @@ param(
   [string]$Out = "$PSScriptRoot/RoutineOps-agent.msi",
   [string]$PfxPath,
   [string]$PfxPassword,
-  [string]$TimestampUrl = "http://timestamp.digicert.com"
+  [string]$TimestampUrl = "http://timestamp.digicert.com",
+  [ValidateSet("x64", "arm64")]
+  [string]$Arch = "x64"
 )
 $ErrorActionPreference = "Stop"
 
@@ -61,11 +67,13 @@ if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
 }
 wix extension add -g WixToolset.Util.wixext/4.0.5 2>$null | Out-Null
 
-Write-Host "Сборка MSI ($Version)..."
+Write-Host "Сборка MSI ($Version, $Arch)..."
+# -arch задаёт разрядность пакета; ProgramFiles64Folder в mdm-agent.wxs корректно
+# резолвится и для x64, и для arm64 (обе — 64-битные Program Files).
 wix build "$PSScriptRoot/mdm-agent.wxs" `
   -d Version=$Version `
   -ext WixToolset.Util.wixext `
-  -arch x64 `
+  -arch $Arch `
   -o $Out
 Write-Host "MSI собран: $Out"
 
