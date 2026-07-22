@@ -81,6 +81,17 @@ func RunHelper(ctx context.Context, dialer *transport.Dialer, sessionID string, 
 	}); err != nil {
 		return err
 	}
+
+	// Согласие пользователя на устройстве (attended). Показываем модальный запрос в
+	// сессии пользователя ДО отправки кадров: без явного «Разрешить» сеанс не
+	// начинается (fail-safe). Отказ/таймаут/ошибка показа → USER_DENIED, сервер
+	// закроет WebSocket, админ увидит «отклонено пользователем».
+	if !requestConsent() {
+		log.Info("remote desktop helper: пользователь отклонил доступ", slog.String("session_id", sessionID))
+		_ = stream.Send(statusMsg(pb.RDStatusCode_RD_STATUS_CODE_USER_DENIED, "пользователь отклонил удалённый доступ"))
+		return nil
+	}
+
 	_ = stream.Send(statusMsg(pb.RDStatusCode_RD_STATUS_CODE_READY, ""))
 	log.Info("remote desktop helper: сессия установлена", slog.String("session_id", sessionID),
 		slog.Int("w", w), slog.Int("h", h))
