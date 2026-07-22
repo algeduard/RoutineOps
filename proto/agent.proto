@@ -431,6 +431,73 @@ message EscrowRecoveryKeyResponse {
   string escrow_id = 2;
 }
 
+// ====== Телеметрия устройств (Device Telemetry) ======
+// Общий контракт (ADR-1/4/5). Агент сам собирает по таймеру и репортит (как
+// inventory/security) — сервер НЕ пушит. device_id НЕ передаётся: сервер берёт
+// его из mTLS-серта (ADR-1). Всё ниже — аддитивные message/RPC (ADR-4).
+//
+// Две подсистемы:
+//   1) Метрики ресурсов (CPU/RAM/диск/сеть) — time-series, репортятся батчами.
+//   2) Аналитика активности приложений и времени за ПК — суточные агрегаты,
+//      ЧУВСТВИТЕЛЬНЫЕ данные, сбор выключаем флагом (privacy, см. дизайн-док
+//      docs/device-telemetry-design.md).
+
+// Один сэмпл ресурсов в момент ts. Метрики допустимо терять при обрыве (в отличие
+// от прав/алертов) — идут прямым unary с ретраем, не через durable-outbox.
+message ResourceSample {
+  int64  ts                  = 1; // unix-время сэмпла (агентские часы; сервер клампит)
+  double cpu_percent         = 2; // загрузка CPU, 0..100
+  int64  mem_used_bytes      = 3; // использовано RAM, байт
+  int64  mem_total_bytes     = 4; // всего RAM, байт
+  double disk_percent        = 5; // загрузка СИСТЕМНОГО тома, 0..100
+  int64  net_rx_bytes_per_sec = 6; // входящий трафик, байт/с (дельта счётчиков)
+  int64  net_tx_bytes_per_sec = 7; // исходящий трафик, байт/с (дельта счётчиков)
+}
+
+// Агент → Сервер: батч сэмплов ресурсов, накопленных с прошлой отправки.
+message ResourceMetricsReport {
+  repeated ResourceSample samples = 1;
+}
+message ResourceMetricsAck {
+  bool received = 1;
+}
+
+// Одна запись использования приложения за день (ДЕЛЬТА foreground-времени с
+// прошлой отправки; сервер аккумулирует existing + delta).
+message AppUsageEntry {
+  string day                = 1; // локальный день устройства, ISO "2006-01-02"
+  string app_name           = 2; // имя foreground-процесса (напр. "chrome.exe")
+  int64  foreground_seconds = 3; // дельта секунд на переднем плане (при активном вводе)
+}
+
+// Активное/простойное время за день (ДЕЛЬТА с прошлой отправки).
+message DailyActivity {
+  string day            = 1; // локальный день устройства, ISO "2006-01-02"
+  int64  active_seconds = 2; // дельта секунд активности (ввод в пределах idle-порога)
+  int64  idle_seconds   = 3; // дельта секунд простоя
+}
+
+// Агент → Сервер: агрегаты активности приложений и времени за ПК (дельты).
+// Отправляется ТОЛЬКО при включённом сборе (FetchTelemetryConfig.app_usage_enabled).
+message AppUsageReport {
+  repeated AppUsageEntry apps = 1;
+  repeated DailyActivity days = 2;
+}
+message AppUsageAck {
+  bool received = 1;
+}
+
+// Агент → Сервер: pull-конфиг телеметрии для устройства (как FetchPolicy).
+message FetchTelemetryConfigRequest {}
+message FetchTelemetryConfigResponse {
+  // Сбор аналитики приложений/времени за ПК включён для этого устройства.
+  // Дефолт false (privacy): агент не собирает foreground/idle, пока не true.
+  bool  app_usage_enabled     = 1;
+  // Опциональный серверный оверрайд интервала сэмплирования ресурсов (секунды).
+  // 0 = использовать агентский дефолт.
+  int64 metrics_sample_seconds = 2;
+}
+
 service AgentService {
   // Постоянный стрим: heartbeat → сервер, задачи ← сервер. (ADR-5)
   rpc Connect(stream HeartbeatRequest) returns (stream Task);
@@ -475,6 +542,13 @@ service AgentService {
   // кадры экрана (RDVideoFrame) и статусы; вниз — события ввода и управление.
   // Сервер проксирует поток в WebSocket админ-браузера. См. docs/remote-desktop-design.md.
   rpc RemoteDesktop(stream RemoteDesktopClientMsg) returns (stream RemoteDesktopServerMsg);
+
+  // Телеметрия устройств. Агент собирает по таймеру и репортит (как inventory).
+  // Метрики ресурсов — батчами; app-usage — суточные дельты (только при включённом
+  // сборе); FetchTelemetryConfig — pull privacy-флага app-usage (как FetchPolicy).
+  rpc ReportResourceMetrics(ResourceMetricsReport) returns (ResourceMetricsAck);
+  rpc ReportAppUsage(AppUsageReport) returns (AppUsageAck);
+  rpc FetchTelemetryConfig(FetchTelemetryConfigRequest) returns (FetchTelemetryConfigResponse);
 }
 
 // ====== Удалённый рабочий стол ======
