@@ -97,10 +97,17 @@ export interface Device {
   public_ip?: string
   serial_number?: string
   agent_version?: string
+  // Канал обновления агента (миграция 038): 'stable'|'beta'. Может отсутствовать у
+  // сервера старой версии — тогда трактуем как 'stable'. Отдаётся в карточке (GetDevice).
+  update_channel?: UpdateChannel
   // Устройство может состоять в нескольких группах. Может отсутствовать: сервер старой
   // версии поля не отдаёт, а только что созданное pending-устройство держим локально.
   groups?: DeviceGroupRef[]
 }
+
+// Каналы обновления агента (см. migrations/038, storage.Channel*). stable — только
+// стабильные релизы; beta — beta+stable (новейший из двух).
+export type UpdateChannel = "stable" | "beta"
 
 // GROUP_PALETTE — те же 8 цветов, которыми миграция 027 бэкфилит существующие группы.
 // Читаемы и на светлой, и на тёмной теме; hex, а не токены темы, потому что цвет

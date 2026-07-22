@@ -224,6 +224,8 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 			r.Post("/devices", h.createPendingDevice)
 			r.Post("/devices/{id}/tasks", h.createTask)
 			r.Put("/devices/{id}/status", h.updateDeviceStatus)
+			// Канал обновления агента (stable/beta) — политика раскатки self-update.
+			r.Put("/devices/{id}/update-channel", h.setDeviceUpdateChannel)
 			r.Delete("/devices/{id}", h.deleteDevice)
 			r.Post("/devices/{id}/lock", h.lockDevice)
 			r.Post("/devices/{id}/unlock", h.unlockDevice)
@@ -672,6 +674,40 @@ func (h *Handler) updateDeviceStatus(w http.ResponseWriter, r *http.Request) {
 
 }
 
+type updateChannelRequest struct {
+	Channel string `json:"channel"`
+}
+
+// setDeviceUpdateChannel переводит устройство на канал обновления агента (stable/beta).
+// Влияет только на то, какие релизы устройство получает через self-update (см.
+// agentVersion) — не создаёт задач и ничего на устройство сразу не пушит: агент подхватит
+// канал при следующей проверке обновлений. it_admin-only (роут гейтит роль), с аудитом.
+func (h *Handler) setDeviceUpdateChannel(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req updateChannelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if req.Channel != storage.ChannelStable && req.Channel != storage.ChannelBeta {
+		http.Error(w, "channel must be 'stable' or 'beta'", http.StatusBadRequest)
+		return
+	}
+	found, err := h.db.SetDeviceUpdateChannel(r.Context(), id, req.Channel)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, "device not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"update_channel": req.Channel})
+	claims := r.Context().Value(claimsKey).(*jwtClaims)
+	h.audit(r.Context(), claims.UserID, claims.Email, "set_update_channel", "device", id,
+		map[string]any{"channel": req.Channel})
+}
+
 // deleteDevice удаляет устройство из инвентаря (списанное/переустановленное).
 // ⚠️ Живой агент воскресит его следующим heartbeat — удаление предназначено для
 // мёртвых записей. Каскад чистит связанные строки; recovery-эскроу (enterprise)
@@ -1048,10 +1084,24 @@ func (h *Handler) agentVersion(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "os and arch are required", http.StatusBadRequest)
 		return
 	}
-	// "current" is informational only — we always return the latest manifest.
-	// The agent calls IsNewer client-side and skips the download if already up to date.
+	// "current" is informational only — we always return the latest manifest for the
+	// device's channel. The agent calls IsNewer client-side and skips the download if
+	// already up to date.
 
-	rel, err := h.db.GetLatestAgentRelease(r.Context(), osParam, archParam)
+	// Гейтинг по каналу обновления. Эндпоинт публичный (без mTLS), device-идентичности в
+	// нём нет, поэтому агент присылает свой CN в ?device= — по нему резолвим канал
+	// устройства. Отсутствует/неизвестен/ошибка резолва → stable (fail-safe: устройство
+	// без явного канала и старые агенты, которые CN не шлют, получают только stable —
+	// поведение до фичи). Канал — политика раскатки, а не секрет: CN не аутентифицирует,
+	// но и раскрыть через него нечего (бинари публичны, подпись обязательна).
+	channel := storage.ChannelStable
+	if cn := r.URL.Query().Get("device"); cn != "" {
+		if ch, found, err := h.db.GetDeviceUpdateChannelByCN(r.Context(), cn); err == nil && found && ch != "" {
+			channel = ch
+		}
+	}
+
+	rel, err := h.db.GetLatestAgentReleaseForChannel(r.Context(), osParam, archParam, channel)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

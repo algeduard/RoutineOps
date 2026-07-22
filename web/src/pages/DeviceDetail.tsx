@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown, LifeBuoy, MonitorPlay, ArrowRightLeft } from "lucide-react"
-import api, { Device, Software, Task, Script, HelpRequest, DeviceDetailResponse, ReenrollResponse, MigrationRosterEntry, deviceRunsScript, agentPlatform, DEVICE_STATUS, helpRequestScreenshotUrl } from "@/lib/api"
+import api, { Device, Software, Task, Script, HelpRequest, DeviceDetailResponse, ReenrollResponse, MigrationRosterEntry, UpdateChannel, deviceRunsScript, agentPlatform, DEVICE_STATUS, helpRequestScreenshotUrl } from "@/lib/api"
 import { GroupBadge } from "@/components/GroupBadge"
 import DeviceResources from "@/components/DeviceResources"
 import DeviceActivity from "@/components/DeviceActivity"
@@ -109,6 +109,11 @@ const M = {
   macAddress:          { ru: "MAC-адрес", en: "MAC address" },
   serialNumber:        { ru: "Серийный номер (SN)", en: "Serial number (SN)" },
   agentVersion:        { ru: "Версия агента", en: "Agent version" },
+  updateChannel:       { ru: "Канал обновления", en: "Update channel" },
+  channelStable:       { ru: "Стабильный", en: "Stable" },
+  channelBeta:         { ru: "Бета", en: "Beta" },
+  channelHint:         { ru: "Бета-устройства получают предрелизные сборки агента раньше остального парка.", en: "Beta devices receive prerelease agent builds ahead of the rest of the fleet." },
+  channelChanged:      { ru: "Канал обновления: {ch}", en: "Update channel: {ch}" },
   internalIp:          { ru: "Внутренний IP", en: "Internal IP" },
   externalIp:          { ru: "Внешний IP", en: "External IP" },
   gbValue:             { ru: "{n} ГБ", en: "{n} GB" },
@@ -162,6 +167,7 @@ export default function DeviceDetail() {
   const [helpReq, setHelpReq] = useState<HelpRequest | null>(null)
   const [loading, setLoading] = useState(true)
   const [blocking, setBlocking] = useState(false)
+  const [savingChannel, setSavingChannel] = useState(false)
   const [taskForm, setTaskForm] = useState<TaskForm>({ script: "", platform: "linux", priority: "normal" })
   const [taskOpen, setTaskOpen] = useState(false)
   const [taskMode, setTaskMode] = useState<TaskMode>("library")
@@ -284,6 +290,20 @@ export default function DeviceDetail() {
       toast({ title: next === "blocked" ? t(M.deviceBlocked) : t(M.deviceUnblocked), variant: "success" })
     } finally {
       setBlocking(false)
+    }
+  }
+
+  const channelLabel = (ch: UpdateChannel) => (ch === "beta" ? t(M.channelBeta) : t(M.channelStable))
+
+  async function setChannel(next: UpdateChannel) {
+    if (!device || next === (device.update_channel ?? "stable")) return
+    setSavingChannel(true)
+    try {
+      await api.put(`/devices/${id}/update-channel`, { channel: next })
+      setDevice({ ...device, update_channel: next })
+      toast({ title: t(M.channelChanged, { ch: channelLabel(next) }), variant: "success" })
+    } finally {
+      setSavingChannel(false)
     }
   }
 
@@ -611,6 +631,27 @@ export default function DeviceDetail() {
             <div>
               <p className="text-xs text-soft mb-0.5">{t(M.agentVersion)}</p>
               <p className="text-sm font-mono text-foreground">{device.agent_version || "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-soft mb-0.5">{t(M.updateChannel)}</p>
+              {isAdmin ? (
+                <div className="mt-1 max-w-[200px]">
+                  <Select
+                    value={device.update_channel ?? "stable"}
+                    onChange={(v) => setChannel(v as UpdateChannel)}
+                    options={[
+                      { value: "stable", label: t(M.channelStable) },
+                      { value: "beta", label: t(M.channelBeta) },
+                    ]}
+                    className={savingChannel ? "pointer-events-none opacity-60" : undefined}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">{t(M.channelHint)}</p>
+                </div>
+              ) : (
+                <Badge variant={device.update_channel === "beta" ? "default" : "secondary"}>
+                  {channelLabel(device.update_channel ?? "stable")}
+                </Badge>
+              )}
             </div>
             <div>
               <p className="text-xs text-soft mb-0.5">{t(M.internalIp)}</p>

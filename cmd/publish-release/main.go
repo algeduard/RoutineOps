@@ -35,11 +35,16 @@ func main() {
 		osName     = flag.String("os", "", "GOOS бинаря (darwin/linux/windows)")
 		arch       = flag.String("arch", "", "GOARCH бинаря (amd64/arm64)")
 		keyPath    = flag.String("key", "", "путь к ed25519-приватнику релиза (PEM)")
+		channel    = flag.String("channel", storage.ChannelStable, "канал релиза: stable|beta (stable-устройства beta не видят)")
 	)
 	flag.Parse()
 
 	if *binaryPath == "" || *version == "" || *osName == "" || *arch == "" || *keyPath == "" {
 		fmt.Fprintln(os.Stderr, "all flags required: -binary -version -os -arch -key")
+		os.Exit(2)
+	}
+	if *channel != storage.ChannelStable && *channel != storage.ChannelBeta {
+		fmt.Fprintln(os.Stderr, "invalid -channel (want stable|beta):", *channel)
 		os.Exit(2)
 	}
 
@@ -96,13 +101,13 @@ func main() {
 
 	if err := db.RegisterAgentRelease(context.Background(), *osName, *arch, *version,
 		filename, sha256hex, base64.StdEncoding.EncodeToString(sig),
-		base64.StdEncoding.EncodeToString(manifestSig),
+		base64.StdEncoding.EncodeToString(manifestSig), *channel,
 	); err != nil {
 		fmt.Fprintln(os.Stderr, "register:", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("published %s %s/%s → %s (sha256=%s)\n", *version, *osName, *arch, dst, hex.EncodeToString(digest[:]))
+	fmt.Printf("published %s %s/%s [%s] → %s (sha256=%s)\n", *version, *osName, *arch, *channel, dst, hex.EncodeToString(digest[:]))
 }
 
 func loadEd25519PrivPEM(path string) (ed25519.PrivateKey, error) {

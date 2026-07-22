@@ -157,6 +157,9 @@ type Device struct {
 	SerialNumber string     `json:"serial_number"`
 	PublicIP     string     `json:"public_ip"`
 	AgentVersion string     `json:"agent_version"`
+	// Канал обновления агента (миграция 038): 'stable'|'beta'. Определяет, какие релизы
+	// устройство получает через self-update. Заполняется в GetDevice (карточка).
+	UpdateChannel string `json:"update_channel"`
 	// Расширение инвентаря (миграция 030). Заполняются в GetDevice (карточка);
 	// в списках устройств пока не выбираются. Пусто/0 = агент не сообщил.
 	Arch           string `json:"arch"`
@@ -365,7 +368,7 @@ func (db *DB) GetDevice(ctx context.Context, id string) (*Device, []SoftwareItem
          COALESCE(cert_cn, ''), enrolled_at,
          COALESCE(cpu, ''), COALESCE(ram, 0), COALESCE(disk, ''),
        COALESCE(mac_address, ''), COALESCE(serial_number, ''), COALESCE(public_ip, ''),
-       COALESCE(agent_version, ''),
+       COALESCE(agent_version, ''), COALESCE(update_channel, 'stable'),
        COALESCE(arch, ''), COALESCE(console_user, ''), COALESCE(disk_encryption, ''),
        COALESCE(os_patch_date, ''), COALESCE(boot_time, 0), COALESCE(disk_free, ''),
        COALESCE(domain_joined, ''), COALESCE(tpm, ''), COALESCE(secure_boot, '')
@@ -373,7 +376,7 @@ func (db *DB) GetDevice(ctx context.Context, id string) (*Device, []SoftwareItem
  `, id).Scan(&d.ID, &d.Hostname, &d.OS, &d.OSVersion,
 		&d.IPAddress, &d.Status, &d.LockStatus, &d.LastSeenAt, &d.CreatedAt,
 		&d.CertCN, &d.EnrolledAt, &d.CPU, &d.RAM, &d.Disk, &d.MACAddress, &d.SerialNumber, &d.PublicIP,
-		&d.AgentVersion,
+		&d.AgentVersion, &d.UpdateChannel,
 		&d.Arch, &d.ConsoleUser, &d.DiskEncryption,
 		&d.OSPatchDate, &d.BootTime, &d.DiskFree,
 		&d.DomainJoined, &d.TPM, &d.SecureBoot)
@@ -571,6 +574,46 @@ func (db *DB) GetDeviceCN(ctx context.Context, deviceID string) (string, error) 
 	err := db.pool.QueryRow(ctx,
 		`SELECT COALESCE(cert_cn, '') FROM devices WHERE id = $1`, deviceID).Scan(&cn)
 	return cn, err
+}
+
+// GetDeviceUpdateChannelByCN резолвит канал обновления устройства по CN его клиентского
+// серта (это то, что агент знает о себе — cert_cn, НЕ UUID id). Нужен манифест-эндпоинту
+// self-update: он публичный, mTLS-идентичности в нём нет, поэтому агент присылает свой CN
+// query-параметром, а сервер по нему определяет канал. found=false, если устройства с
+// таким CN нет (агент до энролла / чужой CN) — вызывающий трактует это как stable.
+// Среди дублей по CN (реенролл со старым CN под новым сертом) берём последний виденный —
+// это то устройство, чей канал релевантен. Пустой cn отсекаем без запроса.
+func (db *DB) GetDeviceUpdateChannelByCN(ctx context.Context, cn string) (channel string, found bool, err error) {
+	if cn == "" {
+		return "", false, nil
+	}
+	err = db.pool.QueryRow(ctx, `
+		SELECT COALESCE(update_channel, 'stable')
+		FROM devices
+		WHERE cert_cn = $1
+		ORDER BY last_seen_at DESC NULLS LAST
+		LIMIT 1
+	`, cn).Scan(&channel)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return channel, true, nil
+}
+
+// SetDeviceUpdateChannel переводит устройство на канал обновления (по UUID id — так его
+// адресует веб/админ-API). found=false, если устройства с таким id нет (→ 404 у ручки).
+// Валидацию значения канала делает вызывающий (API) до этого — БД дополнительно страхует
+// CHECK-констрейнтом из миграции 038.
+func (db *DB) SetDeviceUpdateChannel(ctx context.Context, deviceID, channel string) (found bool, err error) {
+	tag, err := db.pool.Exec(ctx,
+		`UPDATE devices SET update_channel = $2 WHERE id = $1`, deviceID, channel)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func (db *DB) CreateLockTask(ctx context.Context, deviceID, lockHash, lockReason string, unlock bool, lockMode string) (*Task, error) {

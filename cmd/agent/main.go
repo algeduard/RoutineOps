@@ -957,6 +957,26 @@ func deriveUpdateURL(enrollURL string) string {
 	return strings.Replace(enrollURL, enrollPath, manifestPath, 1)
 }
 
+// updateURLWithDevice дописывает к URL манифеста self-update идентичность устройства
+// (?device=<CN клиентского серта>). Сервер по нему резолвит канал обновления устройства
+// (stable/beta) и отдаёт манифест соответствующего канала — эндпоинт публичный, mTLS в
+// нём нет, поэтому CN приходится присылать явно. Пустой deviceID (серт ещё не подняли) →
+// URL без device, сервер трактует такой запрос как stable (fail-safe). httpCheck сам
+// домержит os/arch/current поверх, existing query-параметры сохраняются.
+func updateURLWithDevice(manifestURL, deviceID string) string {
+	if manifestURL == "" || deviceID == "" {
+		return manifestURL
+	}
+	u, err := url.Parse(manifestURL)
+	if err != nil {
+		return manifestURL // невалидный URL не наше дело здесь — selfupdate/httpCheck отчитается
+	}
+	q := u.Query()
+	q.Set("device", deviceID)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 // applyStatePaths переводит изменяемое состояние агента в машинный каталог данных
 // lay.DataDir. Переводятся ТОЛЬКО пути, оставшиеся на относительных дефолтах
 // (config.Default*): явно заданный оператором путь (флаг/env) уважается. Маппинг
@@ -1826,7 +1846,10 @@ func runAgent(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		}
 		if pub := loadUpdatePubKey(resolveUpdatePubKeyB64(cfg.UpdatePubKey, releaseKeyCandidates(cfg)...), log); pub != nil {
 			restart := func() { updating.Store(true); cancel() } // graceful → перезапуск супервизором
-			updater := selfupdate.New(version, cfg.UpdateInterval, pub, cfg.UpdateCheckURL, cfg.CAFile, cfg.UpdateFloorFile, restart, log)
+			// Дописываем CN устройства к URL манифеста: сервер по нему выбирает канал
+			// обновления (stable/beta). Пустой deviceID → URL без device → сервер даёт stable.
+			checkURL := updateURLWithDevice(cfg.UpdateCheckURL, deviceID)
+			updater := selfupdate.New(version, cfg.UpdateInterval, pub, checkURL, cfg.CAFile, cfg.UpdateFloorFile, restart, log)
 			// Windows: провал замены бинаря оставляет трей убитым (taskkill в
 			// replaceExecutable), а рестарта службы при ошибке не будет — поднимаем
 			// иконку обратно. Вне Windows/SCM — no-op (см. relaunchTrayAtServiceStart).
