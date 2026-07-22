@@ -21,6 +21,7 @@ import (
 	"github.com/Floodww/RoutineOps/internal/server/mailer"
 	"github.com/Floodww/RoutineOps/internal/server/notifier"
 	"github.com/Floodww/RoutineOps/internal/server/registry"
+	"github.com/Floodww/RoutineOps/internal/server/remotedesktop"
 	"github.com/Floodww/RoutineOps/internal/server/storage"
 	"github.com/Floodww/RoutineOps/internal/server/worker"
 	pb "github.com/Floodww/RoutineOps/proto"
@@ -105,6 +106,10 @@ func main() {
 	}
 
 	reg := registry.New()
+	// Мост сессий удалённого рабочего стола: общий для WebSocket-хендлера (api) и
+	// gRPC-хендлера RemoteDesktop (gateway) — связывает браузер админа со стримом
+	// агента-хелпера по session_id. См. docs/remote-desktop-design.md.
+	rdBridge := remotedesktop.New()
 
 	asynqClient := worker.NewClient(cfg.RedisAddr)
 	defer asynqClient.Close()
@@ -150,11 +155,13 @@ func main() {
 		}),
 	)
 	g := gateway.New(db, reg, asynqClient, logger, tgBot)
+	g.SetRemoteDesktopBridge(rdBridge)
 	// Enterprise-оверлей (//go:build enterprise) регистрирует escrow-сервис на g и
 	// возвращает RouterOptions (WithLockModePolicy + /escrow/status). Open-core: nil →
 	// escrow Unimplemented, lock mode=filevault → 409. См. enterprise{,_stub}.go.
 	routerOpts := enterpriseSetup(g, db, logger)
 	routerOpts = append(routerOpts, api.WithReleasePubKey(cfg.ReleasePubKey))
+	routerOpts = append(routerOpts, api.WithRemoteDesktop(reg, rdBridge))
 	if tgUsername != nil {
 		routerOpts = append(routerOpts, api.WithTelegramBotUsername(tgUsername))
 	}

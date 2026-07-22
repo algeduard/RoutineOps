@@ -2450,20 +2450,7 @@ func (db *DB) MarkPasswordResetTokenUsed(ctx context.Context, token string) erro
 func (db *DB) CleanupOldData(ctx context.Context, dataRetentionDays, auditRetentionDays int) (int64, error) {
 	var total int64
 	purge := func(table, extraWhere string, days int) error {
-		if days <= 0 {
-			return nil
-		}
-		cutoff := time.Now().AddDate(0, 0, -days)
-		q := `DELETE FROM ` + table + ` WHERE created_at < $1`
-		if extraWhere != "" {
-			q += ` AND ` + extraWhere
-		}
-		res, err := db.pool.Exec(ctx, q, cutoff)
-		if err != nil {
-			return fmt.Errorf("cleanup %s: %w", table, err)
-		}
-		total += res.RowsAffected()
-		return nil
+		return db.purgeOlderThan(ctx, table, "created_at", extraWhere, days, &total)
 	}
 	// НЕпринятые алерты retention НЕ трогает: (1) оператор их ещё не видел — молча
 	// удалять сигнал нельзя; (2) непринятый agent_unreachable мёртвого устройства служит
@@ -2478,5 +2465,38 @@ func (db *DB) CleanupOldData(ctx context.Context, dataRetentionDays, auditRetent
 	if err := purge("audit_log", "", auditRetentionDays); err != nil {
 		return total, err
 	}
+	// Телеметрия — time-series по своим временным колонкам (ts/day), а не created_at.
+	// Тот же операционный срок хранения (dataRetentionDays): метрики короткоживущие,
+	// отдельный длинный срок им не нужен (см. docs/device-telemetry-design.md §2).
+	if err := db.purgeOlderThan(ctx, "device_metrics", "ts", "", dataRetentionDays, &total); err != nil {
+		return total, err
+	}
+	if err := db.purgeOlderThan(ctx, "device_app_usage", "day", "", dataRetentionDays, &total); err != nil {
+		return total, err
+	}
+	if err := db.purgeOlderThan(ctx, "device_activity_daily", "day", "", dataRetentionDays, &total); err != nil {
+		return total, err
+	}
 	return total, nil
+}
+
+// purgeOlderThan удаляет из table строки, у которых tsColumn старше days суток.
+// days<=0 — no-op (ретенция выключена). tsColumn/table/extraWhere подставляются
+// в SQL как идентификаторы — вызывается ТОЛЬКО с константами внутри пакета (не с
+// пользовательским вводом), поэтому инъекции нет.
+func (db *DB) purgeOlderThan(ctx context.Context, table, tsColumn, extraWhere string, days int, total *int64) error {
+	if days <= 0 {
+		return nil
+	}
+	cutoff := time.Now().AddDate(0, 0, -days)
+	q := `DELETE FROM ` + table + ` WHERE ` + tsColumn + ` < $1`
+	if extraWhere != "" {
+		q += ` AND ` + extraWhere
+	}
+	res, err := db.pool.Exec(ctx, q, cutoff)
+	if err != nil {
+		return fmt.Errorf("cleanup %s: %w", table, err)
+	}
+	*total += res.RowsAffected()
+	return nil
 }

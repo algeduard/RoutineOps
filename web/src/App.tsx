@@ -10,6 +10,7 @@ import ResetPassword from "@/pages/ResetPassword"
 import AcceptInvite from "@/pages/AcceptInvite"
 import Devices from "@/pages/Devices"
 import DeviceDetail from "@/pages/DeviceDetail"
+import RemoteDesktop from "@/pages/RemoteDesktop"
 import Alerts from "@/pages/Alerts"
 import AdminAccess from "@/pages/AdminAccess"
 import HelpRequests from "@/pages/HelpRequests"
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="dashboard" element={<Navigate to="/" replace />} />
           <Route path="devices" element={<Devices />} />
           <Route path="devices/:id" element={<DeviceDetail />} />
+          <Route path="devices/:id/remote-desktop" element={<AdminRoute><RemoteDesktop /></AdminRoute>} />
           <Route path="alerts" element={<Alerts />} />
           <Route path="help-requests" element={<HelpRequests />} />
           <Route path="enrollment" element={<AdminRoute><EnrollmentQueue /></AdminRoute>} />

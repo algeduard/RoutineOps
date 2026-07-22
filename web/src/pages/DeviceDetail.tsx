@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
-import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown, LifeBuoy } from "lucide-react"
+import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown, LifeBuoy, MonitorPlay } from "lucide-react"
 import api, { Device, Software, Task, Script, HelpRequest, DeviceDetailResponse, ReenrollResponse, deviceRunsScript, agentPlatform, DEVICE_STATUS, helpRequestScreenshotUrl } from "@/lib/api"
 import { GroupBadge } from "@/components/GroupBadge"
+import DeviceResources from "@/components/DeviceResources"
+import DeviceActivity from "@/components/DeviceActivity"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select } from "@/components/ui/select"
@@ -283,6 +285,16 @@ export default function DeviceDetail() {
                 Перерегистрировать
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              {/* Удалённый рабочий стол: доступен только на онлайн-устройстве; если
+                  устройство офлайн — страница покажет ошибку от сервера (409). */}
+              <DropdownMenuItem
+                onSelect={() => navigate(`/devices/${device.id}/remote-desktop`)}
+                disabled={device.status !== "active"}
+              >
+                <MonitorPlay className="mr-2 h-3.5 w-3.5 opacity-70" />
+                Удалённый рабочий стол
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               {device.lock_status === "locked" ? (
                 <DropdownMenuItem onSelect={sendUnlock}>
                   Разблокировать экран
@@ -535,6 +547,10 @@ export default function DeviceDetail() {
           </div>
         </div>
       </div>
+
+      {id && <DeviceResources deviceId={id} />}
+
+      {id && <DeviceActivity deviceId={id} isAdmin={isAdmin} />}
 
       <div className="glass">
         <div className="px-5 pt-4 pb-3">

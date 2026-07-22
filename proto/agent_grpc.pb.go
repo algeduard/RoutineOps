@@ -19,21 +19,25 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_Connect_FullMethodName             = "/routineops.AgentService/Connect"
-	AgentService_AckTaskReceived_FullMethodName     = "/routineops.AgentService/AckTaskReceived"
-	AgentService_ReportInventory_FullMethodName     = "/routineops.AgentService/ReportInventory"
-	AgentService_ReportTaskResult_FullMethodName    = "/routineops.AgentService/ReportTaskResult"
-	AgentService_ReportSecurityEvent_FullMethodName = "/routineops.AgentService/ReportSecurityEvent"
-	AgentService_FetchPolicy_FullMethodName         = "/routineops.AgentService/FetchPolicy"
-	AgentService_RequestAdminAccess_FullMethodName  = "/routineops.AgentService/RequestAdminAccess"
-	AgentService_FetchAdminStatus_FullMethodName    = "/routineops.AgentService/FetchAdminStatus"
-	AgentService_ReportAdminAccess_FullMethodName   = "/routineops.AgentService/ReportAdminAccess"
-	AgentService_SubmitHelpRequest_FullMethodName   = "/routineops.AgentService/SubmitHelpRequest"
-	AgentService_FetchScriptPolicies_FullMethodName = "/routineops.AgentService/FetchScriptPolicies"
-	AgentService_ReportScriptResult_FullMethodName  = "/routineops.AgentService/ReportScriptResult"
-	AgentService_ReportLockStatus_FullMethodName    = "/routineops.AgentService/ReportLockStatus"
-	AgentService_FetchLockStatus_FullMethodName     = "/routineops.AgentService/FetchLockStatus"
-	AgentService_EscrowRecoveryKey_FullMethodName   = "/routineops.AgentService/EscrowRecoveryKey"
+	AgentService_Connect_FullMethodName               = "/routineops.AgentService/Connect"
+	AgentService_AckTaskReceived_FullMethodName       = "/routineops.AgentService/AckTaskReceived"
+	AgentService_ReportInventory_FullMethodName       = "/routineops.AgentService/ReportInventory"
+	AgentService_ReportTaskResult_FullMethodName      = "/routineops.AgentService/ReportTaskResult"
+	AgentService_ReportSecurityEvent_FullMethodName   = "/routineops.AgentService/ReportSecurityEvent"
+	AgentService_FetchPolicy_FullMethodName           = "/routineops.AgentService/FetchPolicy"
+	AgentService_RequestAdminAccess_FullMethodName    = "/routineops.AgentService/RequestAdminAccess"
+	AgentService_FetchAdminStatus_FullMethodName      = "/routineops.AgentService/FetchAdminStatus"
+	AgentService_ReportAdminAccess_FullMethodName     = "/routineops.AgentService/ReportAdminAccess"
+	AgentService_SubmitHelpRequest_FullMethodName     = "/routineops.AgentService/SubmitHelpRequest"
+	AgentService_FetchScriptPolicies_FullMethodName   = "/routineops.AgentService/FetchScriptPolicies"
+	AgentService_ReportScriptResult_FullMethodName    = "/routineops.AgentService/ReportScriptResult"
+	AgentService_ReportLockStatus_FullMethodName      = "/routineops.AgentService/ReportLockStatus"
+	AgentService_FetchLockStatus_FullMethodName       = "/routineops.AgentService/FetchLockStatus"
+	AgentService_EscrowRecoveryKey_FullMethodName     = "/routineops.AgentService/EscrowRecoveryKey"
+	AgentService_RemoteDesktop_FullMethodName         = "/routineops.AgentService/RemoteDesktop"
+	AgentService_ReportResourceMetrics_FullMethodName = "/routineops.AgentService/ReportResourceMetrics"
+	AgentService_ReportAppUsage_FullMethodName        = "/routineops.AgentService/ReportAppUsage"
+	AgentService_FetchTelemetryConfig_FullMethodName  = "/routineops.AgentService/FetchTelemetryConfig"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -72,6 +76,17 @@ type AgentServiceClient interface {
 	// после устойчивого сохранения. Реальная ошибка (Unavailable/FailedPrecondition) —
 	// агент ретраит и НЕ запускает деструктив, если escrow не подтверждён. НЕ через outbox.
 	EscrowRecoveryKey(ctx context.Context, in *EscrowRecoveryKeyRequest, opts ...grpc.CallOption) (*EscrowRecoveryKeyResponse, error)
+	// Удалённый рабочий стол. Отдельный bidi-стрим (НЕ смешивать с Connect, ADR-5):
+	// открывает АГЕНТ-ХЕЛПЕР из интерактивной сессии после START-команды. Вверх —
+	// кадры экрана (RDVideoFrame) и статусы; вниз — события ввода и управление.
+	// Сервер проксирует поток в WebSocket админ-браузера. См. docs/remote-desktop-design.md.
+	RemoteDesktop(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RemoteDesktopClientMsg, RemoteDesktopServerMsg], error)
+	// Телеметрия устройств. Агент собирает по таймеру и репортит (как inventory).
+	// Метрики ресурсов — батчами; app-usage — суточные дельты (только при включённом
+	// сборе); FetchTelemetryConfig — pull privacy-флага app-usage (как FetchPolicy).
+	ReportResourceMetrics(ctx context.Context, in *ResourceMetricsReport, opts ...grpc.CallOption) (*ResourceMetricsAck, error)
+	ReportAppUsage(ctx context.Context, in *AppUsageReport, opts ...grpc.CallOption) (*AppUsageAck, error)
+	FetchTelemetryConfig(ctx context.Context, in *FetchTelemetryConfigRequest, opts ...grpc.CallOption) (*FetchTelemetryConfigResponse, error)
 }
 
 type agentServiceClient struct {
@@ -235,6 +250,49 @@ func (c *agentServiceClient) EscrowRecoveryKey(ctx context.Context, in *EscrowRe
 	return out, nil
 }
 
+func (c *agentServiceClient) RemoteDesktop(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RemoteDesktopClientMsg, RemoteDesktopServerMsg], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[1], AgentService_RemoteDesktop_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[RemoteDesktopClientMsg, RemoteDesktopServerMsg]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_RemoteDesktopClient = grpc.BidiStreamingClient[RemoteDesktopClientMsg, RemoteDesktopServerMsg]
+
+func (c *agentServiceClient) ReportResourceMetrics(ctx context.Context, in *ResourceMetricsReport, opts ...grpc.CallOption) (*ResourceMetricsAck, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResourceMetricsAck)
+	err := c.cc.Invoke(ctx, AgentService_ReportResourceMetrics_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ReportAppUsage(ctx context.Context, in *AppUsageReport, opts ...grpc.CallOption) (*AppUsageAck, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AppUsageAck)
+	err := c.cc.Invoke(ctx, AgentService_ReportAppUsage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) FetchTelemetryConfig(ctx context.Context, in *FetchTelemetryConfigRequest, opts ...grpc.CallOption) (*FetchTelemetryConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FetchTelemetryConfigResponse)
+	err := c.cc.Invoke(ctx, AgentService_FetchTelemetryConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -271,6 +329,17 @@ type AgentServiceServer interface {
 	// после устойчивого сохранения. Реальная ошибка (Unavailable/FailedPrecondition) —
 	// агент ретраит и НЕ запускает деструктив, если escrow не подтверждён. НЕ через outbox.
 	EscrowRecoveryKey(context.Context, *EscrowRecoveryKeyRequest) (*EscrowRecoveryKeyResponse, error)
+	// Удалённый рабочий стол. Отдельный bidi-стрим (НЕ смешивать с Connect, ADR-5):
+	// открывает АГЕНТ-ХЕЛПЕР из интерактивной сессии после START-команды. Вверх —
+	// кадры экрана (RDVideoFrame) и статусы; вниз — события ввода и управление.
+	// Сервер проксирует поток в WebSocket админ-браузера. См. docs/remote-desktop-design.md.
+	RemoteDesktop(grpc.BidiStreamingServer[RemoteDesktopClientMsg, RemoteDesktopServerMsg]) error
+	// Телеметрия устройств. Агент собирает по таймеру и репортит (как inventory).
+	// Метрики ресурсов — батчами; app-usage — суточные дельты (только при включённом
+	// сборе); FetchTelemetryConfig — pull privacy-флага app-usage (как FetchPolicy).
+	ReportResourceMetrics(context.Context, *ResourceMetricsReport) (*ResourceMetricsAck, error)
+	ReportAppUsage(context.Context, *AppUsageReport) (*AppUsageAck, error)
+	FetchTelemetryConfig(context.Context, *FetchTelemetryConfigRequest) (*FetchTelemetryConfigResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -325,6 +394,18 @@ func (UnimplementedAgentServiceServer) FetchLockStatus(context.Context, *FetchLo
 }
 func (UnimplementedAgentServiceServer) EscrowRecoveryKey(context.Context, *EscrowRecoveryKeyRequest) (*EscrowRecoveryKeyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method EscrowRecoveryKey not implemented")
+}
+func (UnimplementedAgentServiceServer) RemoteDesktop(grpc.BidiStreamingServer[RemoteDesktopClientMsg, RemoteDesktopServerMsg]) error {
+	return status.Error(codes.Unimplemented, "method RemoteDesktop not implemented")
+}
+func (UnimplementedAgentServiceServer) ReportResourceMetrics(context.Context, *ResourceMetricsReport) (*ResourceMetricsAck, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReportResourceMetrics not implemented")
+}
+func (UnimplementedAgentServiceServer) ReportAppUsage(context.Context, *AppUsageReport) (*AppUsageAck, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReportAppUsage not implemented")
+}
+func (UnimplementedAgentServiceServer) FetchTelemetryConfig(context.Context, *FetchTelemetryConfigRequest) (*FetchTelemetryConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FetchTelemetryConfig not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -606,6 +687,67 @@ func _AgentService_EscrowRecoveryKey_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_RemoteDesktop_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AgentServiceServer).RemoteDesktop(&grpc.GenericServerStream[RemoteDesktopClientMsg, RemoteDesktopServerMsg]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_RemoteDesktopServer = grpc.BidiStreamingServer[RemoteDesktopClientMsg, RemoteDesktopServerMsg]
+
+func _AgentService_ReportResourceMetrics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResourceMetricsReport)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ReportResourceMetrics(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ReportResourceMetrics_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ReportResourceMetrics(ctx, req.(*ResourceMetricsReport))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ReportAppUsage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AppUsageReport)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ReportAppUsage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ReportAppUsage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ReportAppUsage(ctx, req.(*AppUsageReport))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_FetchTelemetryConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchTelemetryConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).FetchTelemetryConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_FetchTelemetryConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).FetchTelemetryConfig(ctx, req.(*FetchTelemetryConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -669,11 +811,29 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "EscrowRecoveryKey",
 			Handler:    _AgentService_EscrowRecoveryKey_Handler,
 		},
+		{
+			MethodName: "ReportResourceMetrics",
+			Handler:    _AgentService_ReportResourceMetrics_Handler,
+		},
+		{
+			MethodName: "ReportAppUsage",
+			Handler:    _AgentService_ReportAppUsage_Handler,
+		},
+		{
+			MethodName: "FetchTelemetryConfig",
+			Handler:    _AgentService_FetchTelemetryConfig_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Connect",
 			Handler:       _AgentService_Connect_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "RemoteDesktop",
+			Handler:       _AgentService_RemoteDesktop_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

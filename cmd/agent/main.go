@@ -51,12 +51,14 @@ import (
 	"github.com/Floodww/RoutineOps/internal/agent/lockui"
 	"github.com/Floodww/RoutineOps/internal/agent/outbox"
 	"github.com/Floodww/RoutineOps/internal/agent/policy"
+	"github.com/Floodww/RoutineOps/internal/agent/remotedesktop"
 	"github.com/Floodww/RoutineOps/internal/agent/scripts"
 	"github.com/Floodww/RoutineOps/internal/agent/security"
 	"github.com/Floodww/RoutineOps/internal/agent/selfupdate"
 	"github.com/Floodww/RoutineOps/internal/agent/service"
 	"github.com/Floodww/RoutineOps/internal/agent/status"
 	"github.com/Floodww/RoutineOps/internal/agent/tamper"
+	"github.com/Floodww/RoutineOps/internal/agent/telemetry"
 	"github.com/Floodww/RoutineOps/internal/agent/transport"
 	pb "github.com/Floodww/RoutineOps/proto"
 	"google.golang.org/grpc/codes"
@@ -97,6 +99,15 @@ func main() {
 	// вернул бы ErrHelp с голым списком флагов без сценариев использования).
 	if cmd == "help" || hasHelpFlag(rest) {
 		printUsage(os.Stdout)
+		return
+	}
+
+	// remote-desktop: хелпер захвата экрана/ввода в интерактивной сессии (запускается
+	// службой через winsession). У него собственный флаг -session (id сессии от
+	// сервера), которого нет в общем config.Load — поэтому парсим отдельным FlagSet
+	// ДО общего разбора, дописав -session к тем же флагам подключения (server/cert/…).
+	if cmd == "remote-desktop" {
+		runRemoteDesktopHelper(rest, log)
 		return
 	}
 
@@ -1476,6 +1487,33 @@ func buildDialer(cfg *config.Config) (*transport.Dialer, error) {
 	return transport.NewDialer(cfg.ServerAddr, cfg.ServerName, provider)
 }
 
+// runRemoteDesktopHelper — точка входа подкоманды `remote-desktop`: хелпер захвата
+// экрана/ввода, запущенный службой в активной интерактивной сессии. Парсит свой
+// флаг -session вместе с обычными флагами подключения (config.Load определяет их на
+// том же FlagSet) и открывает bidi-стрим RemoteDesktop к серверу.
+func runRemoteDesktopHelper(rest []string, log *slog.Logger) {
+	fs := flag.NewFlagSet("remote-desktop", flag.ContinueOnError)
+	sessionID := fs.String("session", "", "id сессии удалённого рабочего стола (выдаётся сервером)")
+	cfg, err := config.Load(fs, rest)
+	if err != nil {
+		log.Error("конфигурация remote-desktop", slog.Any("error", err))
+		os.Exit(2)
+	}
+	if *sessionID == "" {
+		log.Error("remote-desktop: не указан -session")
+		os.Exit(2)
+	}
+	dialer, err := buildDialer(cfg)
+	if err != nil {
+		log.Error("mTLS remote-desktop", slog.Any("error", err))
+		os.Exit(1)
+	}
+	if err := remotedesktop.RunHelper(context.Background(), dialer, *sessionID, log); err != nil {
+		log.Error("remote-desktop: хелпер завершился с ошибкой", slog.Any("error", err))
+		os.Exit(1)
+	}
+}
+
 // runAgentService запускает агент под менеджером служб (или в консоли).
 func runAgentService(cfg *config.Config, log *slog.Logger) {
 	if err := service.Run(func(ctx context.Context) error {
@@ -1627,6 +1665,22 @@ func runAgent(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	}
 	go reporter.Run(ctx)
 
+	// Телеметрия устройства: метрики ресурсов (CPU/RAM/диск/сеть) — всегда; аналитика
+	// активности приложений — только если локально разрешена (cfg.TelemetryAppUsage) И
+	// включена сервером для устройства (FetchTelemetryConfig). Прямой unary с ретраем
+	// (метрики допустимо терять), отдельно от heartbeat (ADR-5).
+	telemetryReporter := &telemetry.Reporter{
+		Dialer:             dialer,
+		Log:                log,
+		SampleInterval:     cfg.TelemetrySampleInterval,
+		ReportInterval:     cfg.TelemetryReportInterval,
+		ConfigPollInterval: cfg.TelemetryConfigPoll,
+		IdleThreshold:      cfg.TelemetryIdleThreshold,
+		AppUsageAllowed:    cfg.TelemetryAppUsage,
+		BatchMax:           cfg.TelemetryBatchMax,
+	}
+	go telemetryReporter.Run(ctx)
+
 	// Command Listener: выполняет задачи, пришедшие в Connect-стриме. Результат
 	// уходит durable-путём через outbox (KindTask) — обрыв связи или рестарт
 	// агента больше не теряют его навсегда.
@@ -1660,6 +1714,23 @@ func runAgent(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		decommReason = reason
 		decommissioning.Store(true)
 		cancel()
+	})
+	// Удалённый рабочий стол: START-команда (Task.remote_desktop) запускает хелпер
+	// захвата в активной интерактивной сессии — служба (session 0) экран не видит.
+	// Хелпер получает те же параметры подключения, что у службы, + -session, сам
+	// открывает bidi-стрим RemoteDesktop и возвращает session_id. Вне Windows
+	// launchRemoteDesktopHelper вернёт ошибку → handleRemoteDesktop её залогирует.
+	executor.SetRemoteDesktopLauncher(func(sessionID string) error {
+		args := []string{
+			"remote-desktop",
+			"-session", sessionID,
+			"-server", cfg.ServerAddr,
+			"-server-name", cfg.ServerName,
+			"-cert", cfg.CertFile,
+			"-key", cfg.KeyFile,
+			"-ca", cfg.CAFile,
+		}
+		return launchRemoteDesktopHelper(self, args, log)
 	})
 	// Реконсиляция блокировки (pull, FetchLockStatus): переживает потерю push-
 	// команды и ребут — см. package lock, Reconciler. OnLocalUnlock тем же
