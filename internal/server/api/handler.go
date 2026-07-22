@@ -192,6 +192,10 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 		r.Get("/devices/{id}/metrics/latest", h.getDeviceMetricsLatest)
 		r.Get("/devices/{id}/app-usage", h.getDeviceAppUsage)
 		r.Get("/devices/{id}/telemetry-config", h.getDeviceTelemetryConfig)
+		r.Get("/devices/{id}/migration-info", h.getDeviceMigrationInfo)
+		// Миграция парка из другого MDM: ростер ожидаемых устройств + прогресс. Список
+		// read-only (весь парк виден всем ролям); заливка/очистка — it_admin ниже.
+		r.Get("/migration-roster", h.listMigrationRoster)
 		r.Get("/alerts", h.listAlerts)
 		// requireHuman: ручка отдаёт telegram link_token ВЛАДЕЛЬЦА claims.UserID.
 		// Под токеном это админ-создатель → его непогашенный линк-токен утекал
@@ -236,6 +240,10 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 			r.Post("/devices/{id}/reject", h.rejectDevice)
 			r.With(requireHuman).Post("/enrollment-queue/approve", h.approvePendingDevices)
 			r.Post("/enrollment-queue/reject", h.rejectPendingDevices)
+			// Импорт/очистка ростера миграции. Справочный оверлей (устройства не
+			// трогает, доступ не выдаёт) — гейтим ролью it_admin, без requireHuman.
+			r.Post("/migration-roster/import", h.importMigrationRoster)
+			r.Delete("/migration-roster", h.deleteMigrationRoster)
 			r.Get("/devices/{id}/enrollment-token", h.getEnrollmentToken)
 			r.Post("/devices/{id}/reenroll", h.reenrollDevice)
 			r.Post("/alerts/{id}/acknowledge", h.acknowledgeAlert)

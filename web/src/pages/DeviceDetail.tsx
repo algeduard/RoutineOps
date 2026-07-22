@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
-import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown, LifeBuoy, MonitorPlay } from "lucide-react"
-import api, { Device, Software, Task, Script, HelpRequest, DeviceDetailResponse, ReenrollResponse, deviceRunsScript, agentPlatform, DEVICE_STATUS, helpRequestScreenshotUrl } from "@/lib/api"
+import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown, LifeBuoy, MonitorPlay, ArrowRightLeft } from "lucide-react"
+import api, { Device, Software, Task, Script, HelpRequest, DeviceDetailResponse, ReenrollResponse, MigrationRosterEntry, deviceRunsScript, agentPlatform, DEVICE_STATUS, helpRequestScreenshotUrl } from "@/lib/api"
 import { GroupBadge } from "@/components/GroupBadge"
 import DeviceResources from "@/components/DeviceResources"
 import DeviceActivity from "@/components/DeviceActivity"
@@ -120,6 +120,13 @@ const M = {
   screenshotNoText:    { ru: "(скриншот без текста)", en: "(screenshot without text)" },
   screenshotArrow:     { ru: "скриншот →", en: "screenshot →" },
   softwareHeading:     { ru: "Программное обеспечение", en: "Software" },
+  migrationHeading:    { ru: "Импортировано из MDM", en: "Imported from MDM" },
+  migrationSource:     { ru: "Источник", en: "Source" },
+  migrationBatch:      { ru: "Партия", en: "Batch" },
+  migrationUser:       { ru: "Сотрудник", en: "Assigned user" },
+  migrationAsset:      { ru: "Инвентарный номер", en: "Asset tag" },
+  migrationGroupHint:  { ru: "Группа (из MDM)", en: "Group (from MDM)" },
+  migrationNotes:      { ru: "Заметки", en: "Notes" },
   helpRequestTitle:    { ru: "Обращение за помощью", en: "Help request" },
   reporterLabel:       { ru: "Пользователь", en: "User" },
   receivedLabel:       { ru: "Получено", en: "Received" },
@@ -173,6 +180,7 @@ export default function DeviceDetail() {
   const [lockReason, setLockReason] = useState("")
   const [locking, setLocking] = useState(false)
   const [lockPassword, setLockPassword] = useState<string | null>(null)
+  const [migration, setMigration] = useState<MigrationRosterEntry | null>(null)
   const [lockCopied, setLockCopied] = useState(false)
 
   useEffect(() => {
@@ -211,6 +219,14 @@ export default function DeviceDetail() {
       } catch { /* фоновый поллинг */ }
     }, 10000)
     return () => clearInterval(interval)
+  }, [id])
+
+  // Строка ростера миграции, из которой приехало устройство (null = не из импорта).
+  // Отдельным запросом: блок опциональный, его отказ не должен ронять карточку.
+  useEffect(() => {
+    api.get<MigrationRosterEntry | null>(`/devices/${id}/migration-info`)
+      .then((r) => setMigration(r.data ?? null))
+      .catch(() => setMigration(null))
   }, [id])
 
   useEffect(() => {
@@ -636,6 +652,38 @@ export default function DeviceDetail() {
           </div>
         </div>
       </div>
+
+      {/* Устройство приехало из импортированного парка — показываем метаданные из старого
+          MDM (сотрудник, инвентарный номер, заметки). Матч ростер↔устройство считается на
+          сервере по serial/hostname; null = устройство не из импорта, блок не рендерится. */}
+      {migration && (
+        <div className="glass px-5 py-[18px]">
+          <h2 className="text-[15px] font-semibold text-foreground flex items-center gap-2 mb-4">
+            <ArrowRightLeft className="h-[17px] w-[17px] text-muted-foreground" strokeWidth={2} />
+            {t(M.migrationHeading)}
+          </h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {migration.source_mdm && (
+              <div><p className="text-xs text-soft mb-0.5">{t(M.migrationSource)}</p><p className="text-sm text-foreground">{migration.source_mdm}</p></div>
+            )}
+            {migration.batch_label && (
+              <div><p className="text-xs text-soft mb-0.5">{t(M.migrationBatch)}</p><p className="text-sm text-foreground">{migration.batch_label}</p></div>
+            )}
+            {migration.assigned_user && (
+              <div><p className="text-xs text-soft mb-0.5">{t(M.migrationUser)}</p><p className="text-sm text-foreground">{migration.assigned_user}</p></div>
+            )}
+            {migration.asset_tag && (
+              <div><p className="text-xs text-soft mb-0.5">{t(M.migrationAsset)}</p><p className="text-sm font-mono text-foreground">{migration.asset_tag}</p></div>
+            )}
+            {migration.group_hint && (
+              <div><p className="text-xs text-soft mb-0.5">{t(M.migrationGroupHint)}</p><p className="text-sm text-foreground">{migration.group_hint}</p></div>
+            )}
+            {migration.notes && (
+              <div className="sm:col-span-2"><p className="text-xs text-soft mb-0.5">{t(M.migrationNotes)}</p><p className="text-sm text-foreground">{migration.notes}</p></div>
+            )}
+          </div>
+        </div>
+      )}
 
       {id && <DeviceResources deviceId={id} />}
 

@@ -152,6 +152,40 @@ export interface AdminSoftwareDelta {
   removed: Software[]
 }
 
+// Миграция парка из другого MDM. MigrationRosterRow — одна строка импорта (что уходит в
+// POST /migration-roster/import). MigrationRosterEntry — та же строка ПЛЮС результат матча
+// на чтении: пустой matched_device_id = ожидаемая машина ещё не заехала в парк.
+export interface MigrationRosterRow {
+  hostname: string
+  serial_number: string
+  assigned_user: string
+  asset_tag: string
+  group_hint: string
+  notes: string
+}
+
+export interface MigrationRosterEntry extends MigrationRosterRow {
+  id: string
+  batch_label: string
+  source_mdm: string
+  imported_at: string
+  imported_by: string
+  matched_device_id: string
+  matched_status: string
+  matched_last_seen: string | null
+}
+
+export interface MigrationSummary {
+  total: number
+  arrived: number
+  pending: number
+}
+
+export interface MigrationRosterResponse {
+  summary: MigrationSummary
+  entries: MigrationRosterEntry[]
+}
+
 export interface DeviceDetailResponse {
   device: Device
   software: Software[] | null

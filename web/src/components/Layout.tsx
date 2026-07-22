@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom"
-import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy } from "lucide-react"
+import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy, ArrowRightLeft } from "lucide-react"
 import { logout } from "@/lib/auth"
 import { RoutineOpsLogo } from "@/components/RoutineOpsLogo"
 import { useMe } from "@/lib/useMe"
@@ -20,6 +20,7 @@ const M = {
   navAudit: { ru: "Журнал", en: "Audit log" },
   navDevices: { ru: "Устройства", en: "Devices" },
   navEnrollment: { ru: "Энроллмент", en: "Enrollment" },
+  navMigration: { ru: "Миграция", en: "Migration" },
   navGroups: { ru: "Группы", en: "Groups" },
   navScripts: { ru: "Скрипты", en: "Scripts" },
   navScriptPolicies: { ru: "Политики скриптов", en: "Script policies" },
@@ -152,6 +153,7 @@ export default function Layout() {
       items: [
         { to: "/devices", label: t(M.navDevices), icon: Monitor, badge: 0, adminOnly: false },
         { to: "/enrollment", label: t(M.navEnrollment), icon: LogIn, badge: queueCount, adminOnly: true },
+        { to: "/migration", label: t(M.navMigration), icon: ArrowRightLeft, badge: 0, adminOnly: true },
         { to: "/groups", label: t(M.navGroups), icon: Boxes, badge: 0, adminOnly: true },
       ],
     },

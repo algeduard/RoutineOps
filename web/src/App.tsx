@@ -15,6 +15,7 @@ import Alerts from "@/pages/Alerts"
 import AdminAccess from "@/pages/AdminAccess"
 import HelpRequests from "@/pages/HelpRequests"
 import EnrollmentQueue from "@/pages/EnrollmentQueue"
+import Migration from "@/pages/Migration"
 import Policies from "@/pages/Policies"
 import PolicyDetail from "@/pages/PolicyDetail"
 import Scripts from "@/pages/Scripts"
@@ -63,6 +64,7 @@ export default function App() {
           <Route path="alerts" element={<Alerts />} />
           <Route path="help-requests" element={<HelpRequests />} />
           <Route path="enrollment" element={<AdminRoute><EnrollmentQueue /></AdminRoute>} />
+          <Route path="migration" element={<AdminRoute><Migration /></AdminRoute>} />
           <Route path="admin-access" element={<AdminRoute><AdminAccess /></AdminRoute>} />
           <Route path="policies" element={<AdminRoute><Policies /></AdminRoute>} />
           <Route path="policies/:id" element={<AdminRoute><PolicyDetail /></AdminRoute>} />
