@@ -1,15 +1,18 @@
-# Кодоген Go из proto через buf (protoc в среде может отсутствовать; buf вызывает
-# те же плагины protoc-gen-go / protoc-gen-go-grpc). Запускать С КОРНЕМ МОДУЛЯ = КОРЕНЬ
-# РЕПО, чтобы import-путь файла был `proto/agent.proto` (совпадает с раскладкой
-# `make proto` и с уже закоммиченными файлами: символы file_proto_agent_proto_*,
-# `// source: proto/agent.proto`). С paths=source_relative и out: . результат ложится
-# в proto/agent.pb.go и proto/agent_grpc.pb.go.
+# Кодоген Go из proto-контракта через buf (замена protoc-таргету `make proto`).
 #
-# ВАЖНО: buf.yaml объявляет модуль как `path: proto` — это КОНФИГ BREAKING-ПРОВЕРКИ, а
-# не кодогена; при нём import-путь стал бы `agent.proto` и переименовал бы все
-# внутренние символы. Поэтому генерируют с корнем-репо: buf.yaml на время кодогена
-# отодвигают (см. Makefile / CI-шаг), либо переопределяют `--config`. Изменения
-# контракта — только аддитивные (ADR-4); buf breaking стережёт совместимость.
+# ВАЖНО про module root: buf.yaml объявляет модуль в `proto/` — это нужно ГЕЙТУ
+# СОВМЕСТИМОСТИ (`buf breaking`, файл сравнивается как `agent.proto`). Но кодоген с
+# paths=source_relative обязан рутить модуль в КОРНЕ репозитория, иначе файлы лягут в
+# корень и `source:`-комментарий станет `agent.proto` вместо `proto/agent.proto`.
+# Поэтому генерируем с ОВЕРРАЙДОМ конфига на инлайн-модуль `.` (buf.yaml не трогаем):
+#
+#   buf generate --config '{"version":"v2","modules":[{"path":"."}]}'
+#
+# (см. Makefile-таргет `proto`). Результат — proto/agent.pb.go и proto/agent_grpc.pb.go
+# рядом с proto/agent.proto, с `// source: proto/agent.proto`.
+#
+# Изменения контракта — ТОЛЬКО аддитивные (ADR-4, см. proto/agent.proto); после правки
+# .proto перегенерировать этим шаблоном и прогнать `buf breaking` против main.
 version: v2
 plugins:
   - local: protoc-gen-go

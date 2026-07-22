@@ -56,6 +56,7 @@ func (h *Handler) getDeviceMetricsLatest(w http.ResponseWriter, r *http.Request)
 type appUsageResponse struct {
 	AppUsageEnabled     bool                       `json:"app_usage_enabled"`
 	CaptureWindowTitles bool                       `json:"capture_window_titles"`
+	CaptureURLs         bool                       `json:"capture_urls"`
 	Apps                []storage.AppUsageRow      `json:"apps"`
 	Days                []storage.DailyActivityRow `json:"days"`
 }
@@ -87,18 +88,24 @@ func (h *Handler) getDeviceAppUsage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	urls, _, err := h.db.GetCaptureURLs(r.Context(), id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	if apps == nil {
 		apps = []storage.AppUsageRow{}
 	}
 	if activity == nil {
 		activity = []storage.DailyActivityRow{}
 	}
-	writeJSON(w, http.StatusOK, appUsageResponse{AppUsageEnabled: enabled, CaptureWindowTitles: titles, Apps: apps, Days: activity})
+	writeJSON(w, http.StatusOK, appUsageResponse{AppUsageEnabled: enabled, CaptureWindowTitles: titles, CaptureURLs: urls, Apps: apps, Days: activity})
 }
 
 type telemetryConfigResponse struct {
 	AppUsageEnabled     bool `json:"app_usage_enabled"`
 	CaptureWindowTitles bool `json:"capture_window_titles"`
+	CaptureURLs         bool `json:"capture_urls"`
 }
 
 // getDeviceTelemetryConfig отдаёт текущее состояние privacy-флагов сбора аналитики.
@@ -118,7 +125,12 @@ func (h *Handler) getDeviceTelemetryConfig(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, telemetryConfigResponse{AppUsageEnabled: enabled, CaptureWindowTitles: titles})
+	urls, _, err := h.db.GetCaptureURLs(r.Context(), id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, telemetryConfigResponse{AppUsageEnabled: enabled, CaptureWindowTitles: titles, CaptureURLs: urls})
 }
 
 type setTelemetryConfigRequest struct {
@@ -126,12 +138,13 @@ type setTelemetryConfigRequest struct {
 	// каждый флаг независимо.
 	AppUsageEnabled     *bool `json:"app_usage_enabled"`
 	CaptureWindowTitles *bool `json:"capture_window_titles"`
+	CaptureURLs         *bool `json:"capture_urls"`
 }
 
-// setDeviceTelemetryConfig включает/выключает сбор аналитики приложений и/или
-// заголовков окон для устройства (privacy/consent). it_admin + аудит: включение
-// слежки прослеживается. Заголовки окон (capture_window_titles) — более
-// чувствительный сбор, отдельный флаг.
+// setDeviceTelemetryConfig включает/выключает сбор аналитики приложений, заголовков
+// окон и/или URL для устройства (privacy/consent). it_admin + аудит: включение слежки
+// прослеживается. Заголовки окон (capture_window_titles) и URL (capture_urls) — более
+// чувствительный сбор, отдельные флаги; URL — самый чувствительный.
 func (h *Handler) setDeviceTelemetryConfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var req setTelemetryConfigRequest
@@ -139,8 +152,8 @@ func (h *Handler) setDeviceTelemetryConfig(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if req.AppUsageEnabled == nil && req.CaptureWindowTitles == nil {
-		http.Error(w, "app_usage_enabled or capture_window_titles is required", http.StatusBadRequest)
+	if req.AppUsageEnabled == nil && req.CaptureWindowTitles == nil && req.CaptureURLs == nil {
+		http.Error(w, "app_usage_enabled, capture_window_titles or capture_urls is required", http.StatusBadRequest)
 		return
 	}
 	details := map[string]bool{}
@@ -168,10 +181,23 @@ func (h *Handler) setDeviceTelemetryConfig(w http.ResponseWriter, r *http.Reques
 		}
 		details["capture_window_titles"] = *req.CaptureWindowTitles
 	}
+	if req.CaptureURLs != nil {
+		found, err := h.db.SetCaptureURLs(r.Context(), id, *req.CaptureURLs)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !found {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		details["capture_urls"] = *req.CaptureURLs
+	}
 	claims := r.Context().Value(claimsKey).(*jwtClaims)
 	h.audit(r.Context(), claims.UserID, claims.Email, "set_telemetry_config", "device", id, details)
-	// Возвращаем актуальное состояние обоих флагов.
+	// Возвращаем актуальное состояние всех флагов.
 	enabled, _, _ := h.db.GetAppUsageEnabled(r.Context(), id)
 	titles, _, _ := h.db.GetCaptureWindowTitles(r.Context(), id)
-	writeJSON(w, http.StatusOK, telemetryConfigResponse{AppUsageEnabled: enabled, CaptureWindowTitles: titles})
+	urls, _, _ := h.db.GetCaptureURLs(r.Context(), id)
+	writeJSON(w, http.StatusOK, telemetryConfigResponse{AppUsageEnabled: enabled, CaptureWindowTitles: titles, CaptureURLs: urls})
 }
