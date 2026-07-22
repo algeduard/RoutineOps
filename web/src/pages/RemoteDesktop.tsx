@@ -21,6 +21,7 @@ export default function RemoteDesktop() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const controlRef = useRef(false)
+  const lastMoveRef = useRef(0)
 
   const [phase, setPhase] = useState<Phase>("connecting")
   const [errMsg, setErrMsg] = useState("")
@@ -104,7 +105,15 @@ export default function RemoteDesktop() {
   }, [])
 
   // Обработчики ввода активны только в режиме управления.
-  const onMouseMove = (e: React.MouseEvent) => { if (controlRef.current) send({ t: "mouse_move", ...norm(e) }) }
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!controlRef.current) return
+    // Троттлинг ~30 Гц: браузер шлёт mousemove на каждый пиксель, без ограничения
+    // это забивает серверный буфер ввода и вытесняет важные события (клавиши).
+    const now = performance.now()
+    if (now - lastMoveRef.current < 33) return
+    lastMoveRef.current = now
+    send({ t: "mouse_move", ...norm(e) })
+  }
   const onMouseDown = (e: React.MouseEvent) => { if (controlRef.current) { e.preventDefault(); send({ t: "mouse_down", ...norm(e), button: buttonMap[e.button] ?? 0 }) } }
   const onMouseUp = (e: React.MouseEvent) => { if (controlRef.current) { e.preventDefault(); send({ t: "mouse_up", ...norm(e), button: buttonMap[e.button] ?? 0 }) } }
   const onWheel = (e: React.WheelEvent) => { if (controlRef.current) send({ t: "wheel", ...normWheel(e), delta: Math.round(-e.deltaY) }) }

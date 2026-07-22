@@ -15,6 +15,7 @@ import (
 	"image"
 	"image/jpeg"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/Floodww/RoutineOps/internal/agent/transport"
@@ -62,16 +63,17 @@ func RunHelper(ctx context.Context, dialer *transport.Dialer, sessionID string, 
 		return err
 	}
 
-	cap, err := newCapturer()
-	if err != nil {
-		// Платформа/окружение без захвата — сообщаем серверу и выходим.
-		_ = stream.Send(statusMsg(pb.RDStatusCode_RD_STATUS_CODE_ERROR, "capture unavailable: "+err.Error()))
-		return err
+	// Захват создаём ДО Hello, чтобы знать размеры экрана. Но Hello шлём ВСЕГДА
+	// (даже при отказе захвата) — иначе сервер не свяжет сессию и последующий ERROR
+	// не дойдёт до браузера (gateway требует Hello первым сообщением), а WS будет
+	// ждать полный таймаут и покажет generic-ошибку.
+	cap, capErr := newCapturer()
+	var w, h int
+	if capErr == nil {
+		w, h = cap.Bounds()
+		defer cap.Close()
 	}
-	defer cap.Close()
-	w, h := cap.Bounds()
 
-	// Hello: связываем стрим с ожидающей сессией (session_id выдан сервером).
 	if err := stream.Send(&pb.RemoteDesktopClientMsg{
 		Payload: &pb.RemoteDesktopClientMsg_Hello{Hello: &pb.RDHello{
 			SessionId:    sessionID,
@@ -82,23 +84,20 @@ func RunHelper(ctx context.Context, dialer *transport.Dialer, sessionID string, 
 		return err
 	}
 
-	// Согласие пользователя на устройстве (attended). Показываем модальный запрос в
-	// сессии пользователя ДО отправки кадров: без явного «Разрешить» сеанс не
-	// начинается (fail-safe). Отказ/таймаут/ошибка показа → USER_DENIED, сервер
-	// закроет WebSocket, админ увидит «отклонено пользователем».
-	if !requestConsent() {
-		log.Info("remote desktop helper: пользователь отклонил доступ", slog.String("session_id", sessionID))
-		_ = stream.Send(statusMsg(pb.RDStatusCode_RD_STATUS_CODE_USER_DENIED, "пользователь отклонил удалённый доступ"))
-		return nil
+	if capErr != nil {
+		log.Warn("remote desktop helper: захват недоступен", slog.Any("error", capErr))
+		_ = stream.Send(statusMsg(pb.RDStatusCode_RD_STATUS_CODE_ERROR, "capture unavailable: "+capErr.Error()))
+		gracefulClose(stream) // дать статусу флашнуться до conn.Close (recv-горутина ещё не запущена)
+		return capErr
 	}
 
-	_ = stream.Send(statusMsg(pb.RDStatusCode_RD_STATUS_CODE_READY, ""))
-	log.Info("remote desktop helper: сессия установлена", slog.String("session_id", sessionID),
-		slog.Int("w", w), slog.Int("h", h))
-
 	inj := newInjector(w, h)
+	// granted гейтит применение ввода: до согласия админ НЕ должен управлять машиной,
+	// хотя браузер уже «активен» (сервер шлёт ready по Hello, до согласия).
+	var granted atomic.Bool
 
-	// recv-горутина: ввод/управление от сервера.
+	// recv-горутина запускается ДО согласия: (а) ловит смерть стрима/сессии и
+	// отменяет ctx (что закроет и диалог согласия), (б) до согласия ввод игнорирует.
 	go func() {
 		for {
 			msg, rerr := stream.Recv()
@@ -107,7 +106,7 @@ func RunHelper(ctx context.Context, dialer *transport.Dialer, sessionID string, 
 				return
 			}
 			if in := msg.GetInput(); in != nil {
-				if inj != nil {
+				if granted.Load() && inj != nil {
 					inj.Inject(in)
 				}
 				continue
@@ -120,6 +119,34 @@ func RunHelper(ctx context.Context, dialer *transport.Dialer, sessionID string, 
 			}
 		}
 	}()
+
+	// Согласие пользователя на устройстве (attended). Показываем модальный запрос в
+	// сессии пользователя ДО отправки кадров: без явного «Разрешить» сеанс не
+	// начинается (fail-safe). Отменяется при смерти стрима/сессии (ctx).
+	if !requestConsent(ctx) {
+		log.Info("remote desktop helper: пользователь отклонил доступ", slog.String("session_id", sessionID))
+		_ = stream.Send(statusMsg(pb.RDStatusCode_RD_STATUS_CODE_USER_DENIED, "пользователь отклонил удалённый доступ"))
+		// Дать статусу дойти до сервера: half-close + ждать закрытия стрима
+		// (recv-горутина отменит ctx), но не дольше пары секунд.
+		_ = stream.CloseSend()
+		select {
+		case <-ctx.Done():
+		case <-time.After(2 * time.Second):
+		}
+		return nil
+	}
+	granted.Store(true)
+
+	// Плашка «идёт сеанс» на всё время сессии: пользователь видит активность не
+	// только в момент согласия, но и пока админ подключён.
+	stopBanner := startSessionBanner()
+	defer stopBanner()
+
+	if err := stream.Send(statusMsg(pb.RDStatusCode_RD_STATUS_CODE_READY, "")); err != nil {
+		return err // сессия уже мертва (WS закрыт / таймаут) — не поднимаем захват зря
+	}
+	log.Info("remote desktop helper: сессия установлена", slog.String("session_id", sessionID),
+		slog.Int("w", w), slog.Int("h", h))
 
 	// Цикл захвата: кадр → JPEG → RDVideoFrame.
 	ticker := time.NewTicker(frameInterval)
@@ -153,6 +180,27 @@ func RunHelper(ctx context.Context, dialer *transport.Dialer, sessionID string, 
 				return err
 			}
 		}
+	}
+}
+
+// gracefulClose закрывает отправляющую сторону стрима и ограниченно ждёт его
+// завершения — чтобы уже отправленный терминальный статус (ERROR) успел флашнуться
+// до жёсткого conn.Close (иначе фрейм может отброситься). Вызывать только когда
+// recv-горутина ещё НЕ запущена (иначе два Recv на одном стриме).
+func gracefulClose(stream pb.AgentService_RemoteDesktopClient) {
+	_ = stream.CloseSend()
+	done := make(chan struct{})
+	go func() {
+		for {
+			if _, err := stream.Recv(); err != nil {
+				break
+			}
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
 	}
 }
 

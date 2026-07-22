@@ -104,11 +104,29 @@ func (s *Session) PushToAgent(m *pb.RemoteDesktopServerMsg) bool {
 		return false
 	default:
 	}
+
+	// mouse_move — позиционное событие: под давлением его допустимо УРОНИТЬ (важен
+	// свежий указатель, а не полный ряд). Роняем именно НОВОЕ движение, НЕ трогая
+	// очередь — иначе выкинули бы из головы буфера чужое state-transition событие.
+	if in := m.GetInput(); in != nil && in.GetType() == pb.RDInputType_RD_INPUT_TYPE_MOUSE_MOVE {
+		select {
+		case s.toAgent <- m:
+			return true
+		default:
+			return false // буфер полон — тихо роняем это движение
+		}
+	}
+
+	// Всё остальное (нажатия/отпускания клавиш и кнопок, колесо, управление) —
+	// state-transition: ронять НЕЛЬЗЯ, иначе на устройстве застрянет зажатый
+	// модификатор/кнопка (key-down доставлен, а key-up потерян). Доставляем
+	// блокирующе — лучше короткая задержка ввода, чем застрявшая клавиша; если
+	// сессия закрылась, выходим.
 	select {
+	case <-s.done:
+		return false
 	case s.toAgent <- m:
 		return true
-	default:
-		return false
 	}
 }
 
