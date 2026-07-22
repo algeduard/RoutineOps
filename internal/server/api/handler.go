@@ -381,7 +381,7 @@ func (h *Handler) createPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	name, ok := sanitizeSoftwareName(req.SoftwareName)
 	if !ok {
-		http.Error(w, "software_name пустое или содержит недопустимые символы", http.StatusBadRequest)
+		http.Error(w, "software_name is empty or contains invalid characters", http.StatusBadRequest)
 		return
 	}
 	req.SoftwareName = name

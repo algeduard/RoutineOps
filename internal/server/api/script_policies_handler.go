@@ -387,7 +387,7 @@ func (h *Handler) assignSoftwarePolicyToGroup(w http.ResponseWriter, r *http.Req
 	}
 	name, ok := sanitizeSoftwareName(req.SoftwareName)
 	if !ok {
-		http.Error(w, "software_name пустое или содержит недопустимые символы", http.StatusBadRequest)
+		http.Error(w, "software_name is empty or contains invalid characters", http.StatusBadRequest)
 		return
 	}
 	req.SoftwareName = name

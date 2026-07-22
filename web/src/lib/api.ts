@@ -1,5 +1,6 @@
 import axios from "axios"
 import { toast } from "./toast"
+import { t } from "./i18n"
 
 const api = axios.create({ baseURL: "/api/v1" })
 
@@ -11,7 +12,7 @@ export function errMessage(e: unknown): string {
     return e.message
   }
   if (e instanceof Error) return e.message
-  return "Неизвестная ошибка"
+  return t({ ru: "Неизвестная ошибка", en: "Unknown error" })
 }
 
 // errStatus — HTTP-код ошибки (0, если ответа не было). Нужен, чтобы отличить
@@ -32,7 +33,7 @@ api.interceptors.response.use(
     // Фоновые GET обрабатываются страницами (loading/catch), их не шумим.
     const method = (err.config?.method ?? "get").toLowerCase()
     if (method !== "get") {
-      toast({ title: "Ошибка", description: errMessage(err), variant: "destructive" })
+      toast({ title: t({ ru: "Ошибка", en: "Error" }), description: errMessage(err), variant: "destructive" })
     }
     return Promise.reject(err)
   }

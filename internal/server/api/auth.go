@@ -77,7 +77,7 @@ type jwtClaims struct {
 func requireHuman(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c, ok := r.Context().Value(claimsKey).(*jwtClaims); ok && c.TokenID != "" {
-			http.Error(w, "недоступно для сервисного токена", http.StatusForbidden)
+			http.Error(w, "not available for service accounts", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -385,7 +385,7 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)) != nil {
-		http.Error(w, "текущий пароль неверный", http.StatusUnauthorized)
+		http.Error(w, "current password is incorrect", http.StatusUnauthorized)
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcryptCost)
