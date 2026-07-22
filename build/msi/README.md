@@ -106,6 +106,34 @@ pwsh build/msi/build-msi.ps1 -ExePath .\RoutineOps-agent.exe -Version 2.4.1.0 `
 > полевой отладке так и собирался MSI без свежих флагов). Скрипт печатает sha256/
 > время паковываемого exe и предупреждает при использовании дефолта — сверяйтесь.
 
+### Windows arm64
+
+Агент собирается и под `windows/arm64` (чистый Go, `CGO_ENABLED=0`; `lxn/win` и
+`syscall.NewLazyDLL` доступны на arm64). Self-update тянет правильный релиз сам:
+агент просит манифест под свои `runtime.GOOS/GOARCH`, а `publish-release` уже
+принимает произвольный `-arch`, поэтому arm64-бинарь публикуется тем же путём, что
+amd64:
+
+```bash
+make build-win-arm64                  # -> bin/agent_windows_arm64.exe (+ rsrc_windows_arm64.syso)
+make publish-release BINARY=bin/agent_windows_arm64.exe OS=windows ARCH=arm64 VERSION=vX.Y.Z
+```
+
+MSI под arm64 собирается тем же WiX-исходником, но **пока не гоняется в CI** (job
+`windows-msi` строит только x64, а arm64-раннеров GitHub-hosted нет — нужен
+self-hosted arm64 или кросс-упаковка). Собрать вручную на Windows:
+
+```bash
+make msi-exe-arm64                    # build-win-arm64 + копия exe в build/msi/mdm-agent.exe
+```
+```powershell
+pwsh build/msi/build-msi.ps1 -Arch arm64 -ExePath .\mdm-agent.exe -Version X.Y.Z.0
+```
+
+`-Arch arm64` меняет разрядность пакета; `ProgramFiles64Folder` резолвится
+одинаково для x64 и arm64. Follow-up: добавить arm64-ветку в CI-job `windows-msi`
+и публиковать отдельный `RoutineOps-agent-arm64.msi`, когда появится arm64-раннер.
+
 ### Проверка, что внутри MSI правильный бинарь
 
 ```powershell
