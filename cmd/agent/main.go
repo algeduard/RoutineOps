@@ -43,6 +43,8 @@ import (
 	"github.com/Floodww/RoutineOps/internal/agent/config"
 	"github.com/Floodww/RoutineOps/internal/agent/enroll"
 	"github.com/Floodww/RoutineOps/internal/agent/heartbeat"
+	"github.com/Floodww/RoutineOps/internal/agent/helpreq"
+	"github.com/Floodww/RoutineOps/internal/agent/helpui"
 	"github.com/Floodww/RoutineOps/internal/agent/inventory"
 	"github.com/Floodww/RoutineOps/internal/agent/keystore"
 	"github.com/Floodww/RoutineOps/internal/agent/lock"
@@ -185,6 +187,15 @@ func main() {
 		// Полноэкранный замок в юзер-сессии (запускается треем при блокировке).
 		// Служба (session 0) GUI показать не может — отсюда отдельный процесс.
 		lockui.Run(lockStatePath(cfg), log)
+	case "help-window":
+		// Окно «Сообщить о проблеме» в юзер-сессии (запускается треем по пункту
+		// меню): текст + опциональный скриншот → файл-заявка, которую служба
+		// отправит SubmitHelpRequest. Скриншот снимает именно этот процесс —
+		// служба из session 0 рабочий стол не видит.
+		if err := helpui.Run(helpRequestPath(cfg), log); err != nil {
+			log.Error("окно обращения за помощью", slog.Any("error", err))
+			os.Exit(1)
+		}
 	case "version":
 		printVersion(os.Stdout, cfg)
 	case "diag":
@@ -254,6 +265,7 @@ func printUsage(w io.Writer) {
   uninstall       снять службу
   cleanup-legacy  удалить следы прежних ручных установок (Windows: C:\mdm-extract)
   request-admin   запросить временные права администратора
+  help-window     окно «Сообщить о проблеме» (Windows, запускается треем)
   diag            диагностика: конфиг, сертификат, (опц.) проба связи
   tray            иконка статуса в трее (Windows и macOS, per-user)
 %s
@@ -857,6 +869,12 @@ func lockStatePath(cfg *config.Config) string {
 // в том же общем каталоге, что и состояние блокировки.
 func adminRequestPath(cfg *config.Config) string {
 	return filepath.Join(filepath.Dir(lockStatePath(cfg)), "admin-request.json")
+}
+
+// helpRequestPath — файл-обращение за помощью (окно помощи пишет, служба
+// читает), в том же общем каталоге, что и admin-request.json.
+func helpRequestPath(cfg *config.Config) string {
+	return filepath.Join(filepath.Dir(lockStatePath(cfg)), "help-request.json")
 }
 
 // statusFilePath — снимок состояния агента для трея, в том же общем каталоге, что и
@@ -1691,6 +1709,9 @@ func runAgent(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	// Заявки на временные админ-права из трея (кнопка) → RequestAdminAccess.
 	go admin.WatchUserRequests(ctx, dialer, adminRequestPath(cfg), 5*time.Second, log)
+
+	// Обращения за помощью из окна трея («Сообщить о проблеме») → SubmitHelpRequest.
+	go helpreq.Watch(ctx, dialer, helpRequestPath(cfg), 5*time.Second, log)
 
 	// Policy Syncer: тянет политику ПО с сервера (FetchPolicy) в локальный кэш-файл.
 	syncer := &policy.Syncer{

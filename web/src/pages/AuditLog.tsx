@@ -33,6 +33,8 @@ const ACTION_LABELS: Record<string, string> = {
   decommission_device:   "Вывел устройство из эксплуатации",
   create_api_token:      "Выпустил API-токен",
   revoke_api_token:      "Отозвал API-токен",
+  close_help_request:    "Закрыл обращение за помощью",
+  reopen_help_request:   "Переоткрыл обращение за помощью",
 }
 
 // Таксономия событий ленты — та же, что на Обзоре: security должно цепляться
@@ -51,6 +53,7 @@ const ACTION_CATEGORY: Record<string, EventCategory> = {
   create_api_token: "security", revoke_api_token: "security",
   reject_device: "device", reject_pending_bulk: "device", decommission_device: "device",
   run_script: "device", run_script_on_group: "device",
+  close_help_request: "device", reopen_help_request: "device",
   create_device_group: "device", update_device_group: "device", delete_device_group: "device",
   add_device_to_group: "device", remove_device_from_group: "device",
   // всё остальное (скрипты/политики/алерты/лицензии) — content по умолчанию

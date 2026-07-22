@@ -47,7 +47,7 @@ func buildDecommissionPlan(cfg *config.Config) decommission.Plan {
 	files := []string{
 		cfg.CertFile, cfg.KeyFile, cfg.CAFile,
 		releasePubKeyPath(cfg),
-		lockStatePath(cfg), statusFilePath(cfg), adminRequestPath(cfg),
+		lockStatePath(cfg), statusFilePath(cfg), adminRequestPath(cfg), helpRequestPath(cfg),
 		cfg.TaskStateFile, cfg.ScriptDedupFile,
 		cfg.ForbiddenListFile, cfg.UpdateFloorFile,
 	}

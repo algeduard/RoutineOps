@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
-import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown } from "lucide-react"
-import api, { Device, Software, Task, Script, DeviceDetailResponse, ReenrollResponse, deviceRunsScript, agentPlatform, DEVICE_STATUS } from "@/lib/api"
+import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown, LifeBuoy } from "lucide-react"
+import api, { Device, Software, Task, Script, HelpRequest, DeviceDetailResponse, ReenrollResponse, deviceRunsScript, agentPlatform, DEVICE_STATUS, helpRequestScreenshotUrl } from "@/lib/api"
 import { GroupBadge } from "@/components/GroupBadge"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -36,6 +36,16 @@ const taskStatusVariant: Record<string, "default" | "secondary" | "success" | "d
   failed:    "destructive",
 }
 
+const helpStatusLabel: Record<string, string> = {
+  new:    "Новое",
+  closed: "Закрыто",
+}
+
+const helpStatusVariant: Record<string, "default" | "secondary" | "success" | "destructive" | "outline"> = {
+  new:    "secondary",
+  closed: "outline",
+}
+
 const PLATFORM_OPTIONS = [
   { value: "linux",   label: "Linux"   },
   { value: "darwin",  label: "macOS"   },
@@ -55,6 +65,8 @@ export default function DeviceDetail() {
   const [device, setDevice] = useState<Device | null>(null)
   const [software, setSoftware] = useState<Software[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [helpRequests, setHelpRequests] = useState<HelpRequest[]>([])
+  const [helpReq, setHelpReq] = useState<HelpRequest | null>(null)
   const [loading, setLoading] = useState(true)
   const [blocking, setBlocking] = useState(false)
   const [taskForm, setTaskForm] = useState<TaskForm>({ script: "", platform: "linux", priority: "normal" })
@@ -80,13 +92,15 @@ export default function DeviceDetail() {
   useEffect(() => {
     async function load() {
       try {
-        const [d, t] = await Promise.all([
+        const [d, t, hr] = await Promise.all([
           api.get<DeviceDetailResponse>(`/devices/${id}`),
           api.get<Task[]>(`/devices/${id}/tasks`),
+          api.get<HelpRequest[]>(`/help-requests?device_id=${id}`),
         ])
         setDevice(d.data.device)
         setSoftware(d.data.software ?? [])
         setTasks(t.data ?? [])
+        setHelpRequests(hr.data ?? [])
       } catch {
         toast({ title: "Не удалось загрузить данные устройства", variant: "destructive" })
       } finally {
@@ -99,13 +113,15 @@ export default function DeviceDetail() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const [d, t] = await Promise.all([
+        const [d, t, hr] = await Promise.all([
           api.get<DeviceDetailResponse>(`/devices/${id}`),
           api.get<Task[]>(`/devices/${id}/tasks`),
+          api.get<HelpRequest[]>(`/help-requests?device_id=${id}`),
         ])
         setDevice(d.data.device)
         setSoftware(d.data.software ?? [])
         setTasks(t.data ?? [])
+        setHelpRequests(hr.data ?? [])
       } catch { /* фоновый поллинг */ }
     }, 10000)
     return () => clearInterval(interval)
@@ -561,6 +577,37 @@ export default function DeviceDetail() {
         </div>
       </div>
 
+      {helpRequests.length > 0 && (
+        <div className="glass">
+          <div className="px-5 pt-4 pb-3">
+            <h2 className="text-[15px] font-semibold text-foreground flex items-center gap-2">
+              <LifeBuoy className="h-[17px] w-[17px] text-muted-foreground" strokeWidth={2} />
+              Обращения
+            </h2>
+          </div>
+          <div>
+            {helpRequests.map((hr) => (
+              <div
+                key={hr.id}
+                className="flex items-center justify-between gap-4 border-t border-border px-5 py-3 last:rounded-b-2xl cursor-pointer glass-hover"
+                onClick={() => setHelpReq(hr)}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <Badge variant={helpStatusVariant[hr.status] ?? "default"}>
+                    {helpStatusLabel[hr.status] ?? hr.status}
+                  </Badge>
+                  <span className="text-[13px] text-soft truncate">{hr.message || "(скриншот без текста)"}</span>
+                </div>
+                <div className="flex items-center gap-4 flex-shrink-0">
+                  <span className="text-xs text-muted-foreground">{formatDistanceToNow(hr.received_at)}</span>
+                  {hr.has_screenshot && <span className="text-xs text-brand">скриншот →</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {software.length > 0 && (
         <div className="glass">
           <div className="px-5 pt-4 pb-3">
@@ -579,6 +626,47 @@ export default function DeviceDetail() {
           </div>
         </div>
       )}
+
+      {/* Просмотр обращения за помощью (кнопки закрытия — на странице «Обращения») */}
+      <Dialog open={!!helpReq} onOpenChange={(o) => !o && setHelpReq(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LifeBuoy className="h-4 w-4 text-muted-foreground" strokeWidth={2} />
+              Обращение за помощью
+            </DialogTitle>
+          </DialogHeader>
+          {helpReq && (
+            <div className="space-y-4 pt-1">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Пользователь</p>
+                  <p className="text-[13px] text-soft">{helpReq.reporter || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Получено</p>
+                  <p className="text-[13px] text-soft">{formatDistanceToNow(helpReq.received_at)}</p>
+                </div>
+              </div>
+              {helpReq.message && (
+                <div className="rounded-md border border-border bg-muted px-3 py-2.5 text-[13px] leading-relaxed text-soft break-words whitespace-pre-wrap">
+                  {helpReq.message}
+                </div>
+              )}
+              {helpReq.has_screenshot && (
+                <a href={helpRequestScreenshotUrl(helpReq.id)} target="_blank" rel="noreferrer">
+                  <img
+                    src={helpRequestScreenshotUrl(helpReq.id)}
+                    alt="Скриншот с устройства"
+                    loading="lazy"
+                    className="max-h-[360px] w-auto rounded-md border border-border"
+                  />
+                </a>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Task log dialog */}
       <Dialog open={!!logTask} onOpenChange={(o) => !o && setLogTask(null)}>

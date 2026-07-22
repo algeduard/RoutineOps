@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"time"
 
@@ -105,8 +106,50 @@ func runTray(cfg *config.Config) {
 		go func() { time.Sleep(10 * time.Second); mi.SetTitle("Запросить админ-права") }()
 	}
 
+	// Кнопка «Сообщить о проблеме»: запускает окно helpui отдельным процессом —
+	// текст и превью скриншота в пункт меню не поместить, а снять экран может
+	// только юзер-сессия (служба в session 0 рабочий стол не видит). Заявку окно
+	// кладёт файлом рядом с admin-request.json, отправит её служба. Один процесс
+	// за раз (helpCmd) — от даблклика; сверх того окно держит свой мьютекс.
+	// Пока только Windows: на macOS диалога helpui ещё нет.
+	var helpMu sync.Mutex
+	var helpCmd *exec.Cmd
+	openHelpWindow := func() {
+		helpMu.Lock()
+		defer helpMu.Unlock()
+		if helpCmd != nil {
+			return // окно уже открыто
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return
+		}
+		cmd := exec.Command(exe, "help-window", "-lock-state", lockPath)
+		configureLockScreenCmd(cmd) // те же атрибуты, что у lock-screen (спрятать консоль)
+		if err := cmd.Start(); err != nil {
+			return
+		}
+		helpCmd = cmd
+		go func(c *exec.Cmd) {
+			_ = c.Wait()
+			helpMu.Lock()
+			if helpCmd == c {
+				helpCmd = nil
+			}
+			helpMu.Unlock()
+		}(cmd)
+	}
+
 	onReady := func() {
 		setTrayIcon() // иконка платформенная: .ico на Windows, template-PNG на macOS
+		if runtime.GOOS == "windows" {
+			mHelp := systray.AddMenuItem("Сообщить о проблеме", "Отправить обращение в ИТ-отдел (можно со скриншотом)")
+			go func() {
+				for range mHelp.ClickedCh {
+					openHelpWindow()
+				}
+			}()
+		}
 		mReqAdmin := systray.AddMenuItem("Запросить админ-права", "Запросить временные права администратора")
 		go func() {
 			for range mReqAdmin.ClickedCh {

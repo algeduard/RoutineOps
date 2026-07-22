@@ -12,6 +12,7 @@ import Devices from "@/pages/Devices"
 import DeviceDetail from "@/pages/DeviceDetail"
 import Alerts from "@/pages/Alerts"
 import AdminAccess from "@/pages/AdminAccess"
+import HelpRequests from "@/pages/HelpRequests"
 import EnrollmentQueue from "@/pages/EnrollmentQueue"
 import Policies from "@/pages/Policies"
 import PolicyDetail from "@/pages/PolicyDetail"
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="devices" element={<Devices />} />
           <Route path="devices/:id" element={<DeviceDetail />} />
           <Route path="alerts" element={<Alerts />} />
+          <Route path="help-requests" element={<HelpRequests />} />
           <Route path="enrollment" element={<AdminRoute><EnrollmentQueue /></AdminRoute>} />
           <Route path="admin-access" element={<AdminRoute><AdminAccess /></AdminRoute>} />
           <Route path="policies" element={<AdminRoute><Policies /></AdminRoute>} />

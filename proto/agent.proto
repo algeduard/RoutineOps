@@ -413,6 +413,27 @@ message EscrowRecoveryKeyResponse {
   string escrow_id = 2;
 }
 
+// ====== Обращения за помощью (help requests) ======
+// Флоу: сотрудник в трее «Сообщить о проблеме» → окно в юзер-сессии (текст +
+// опциональный скриншот, снимается ТОЛЬКО по явному действию пользователя и
+// показывается ему до отправки) → файл-заявка в общем каталоге (как
+// admin-request.json) → служба подхватывает и шлёт SubmitHelpRequest (у трея
+// нет mTLS-идентичности) → IT-админ видит обращение в вебе (REST
+// /api/v1/help-requests, НЕ в этом proto) и закрывает его.
+// device_id не передаётся — сервер берёт из mTLS-серта (ADR-1).
+// Скриншот — уже сжатый JPEG (даунскейл на агенте, ≤ HELP_SCREENSHOT_MAX_BYTES
+// серверной валидации 2МБ << лимита gRPC 4МБ). Маппится на таблицу help_requests.
+
+message SubmitHelpRequestRequest {
+  string message         = 1; // текст обращения от сотрудника
+  bytes  screenshot_jpeg = 2; // опциональный скриншот (пусто = без скриншота)
+  int64  created_at      = 3; // unix, момент создания заявки на устройстве
+  string reporter        = 4; // логин консольного пользователя (кто нажал кнопку)
+}
+message SubmitHelpRequestResponse {
+  string request_id = 1; // help_requests.id
+}
+
 service AgentService {
   // Постоянный стрим: heartbeat → сервер, задачи ← сервер. (ADR-5)
   rpc Connect(stream HeartbeatRequest) returns (stream Task);
@@ -432,6 +453,10 @@ service AgentService {
   rpc RequestAdminAccess(RequestAdminAccessRequest) returns (RequestAdminAccessResponse);
   rpc FetchAdminStatus(FetchAdminStatusRequest) returns (FetchAdminStatusResponse);
   rpc ReportAdminAccess(ReportAdminAccessRequest) returns (ReportAdminAccessResponse);
+
+  // Обращение за помощью с устройства (текст + опциональный скриншот).
+  // Закрытие IT-админом — через REST, как admin-access-requests.
+  rpc SubmitHelpRequest(SubmitHelpRequestRequest) returns (SubmitHelpRequestResponse);
 
   // Скрипт-политики (Этап 5). Pull эффективного набора + отчёт о выполнении
   // (как FetchPolicy + ReportTaskResult).

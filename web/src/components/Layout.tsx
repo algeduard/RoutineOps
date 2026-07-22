@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom"
-import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck } from "lucide-react"
+import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy } from "lucide-react"
 import { logout } from "@/lib/auth"
 import { RoutineOpsLogo } from "@/components/RoutineOpsLogo"
 import { useMe } from "@/lib/useMe"
@@ -18,6 +18,7 @@ export default function Layout() {
   const { isAdmin, me } = useMe()
   const [pendingCount, setPendingCount] = useState(0)
   const [queueCount, setQueueCount] = useState(0)
+  const [helpCount, setHelpCount] = useState(0)
   const [tgOpen, setTgOpen] = useState(false)
   const [tgLinked, setTgLinked] = useState(false)
   const [tgToken, setTgToken] = useState<string | null>(null)
@@ -49,6 +50,14 @@ export default function Layout() {
       .then((r) => setQueueCount((r.data ?? []).filter((d) => d.status === "pending_approval").length))
       .catch(() => { })
   }, [isAdmin, location.pathname])
+
+  // Бейдж «Обращений» — без isAdmin-гейта: страница и список доступны и viewer'у
+  // (как алерты), а ручка отдаёт только новые, без скриншотов.
+  useEffect(() => {
+    api.get<{ id: string }[]>("/help-requests?status=new")
+      .then((r) => setHelpCount(r.data?.length ?? 0))
+      .catch(() => { })
+  }, [location.pathname])
 
   async function openTelegramDialog() {
     setTgOpen(true)
@@ -89,6 +98,7 @@ export default function Layout() {
       items: [
         { to: "/", label: "Обзор", icon: LayoutDashboard, badge: 0, adminOnly: false },
         { to: "/alerts", label: "Алерты", icon: Bell, badge: 0, adminOnly: false },
+        { to: "/help-requests", label: "Обращения", icon: LifeBuoy, badge: helpCount, adminOnly: false },
         { to: "/audit-log", label: "Журнал", icon: History, badge: 0, adminOnly: false },
       ],
     },

@@ -187,6 +187,27 @@ export interface AdminAccessRequest {
   revoked_at: string | null
 }
 
+export interface HelpRequest {
+  id: string
+  device_id: string
+  device_hostname: string
+  reporter: string
+  message: string
+  has_screenshot: boolean
+  status: "new" | "closed"
+  created_at: string
+  received_at: string
+  closed_by: string | null
+  closed_by_email: string
+  closed_at: string | null
+}
+
+// Скриншот обращения отдаётся отдельной ручкой (в списке его нет — bytea до 2МБ
+// на строку). Авторизация — cookie, поэтому URL работает прямо в <img src>.
+export function helpRequestScreenshotUrl(id: string): string {
+  return `/api/v1/help-requests/${id}/screenshot`
+}
+
 export interface PolicyRule {
   id: string
   software_name: string

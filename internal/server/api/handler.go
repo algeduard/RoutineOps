@@ -186,6 +186,8 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 		// админские алерты. Привязка Telegram — личное действие человека.
 		r.With(requireHuman).Get("/profile/telegram", h.getTelegramStatus)
 		r.Get("/admin-access-requests", h.listAdminAccessRequests)
+		r.Get("/help-requests", h.listHelpRequests)
+		r.Get("/help-requests/{id}/screenshot", h.getHelpRequestScreenshot)
 		r.Get("/policies", h.listPolicies)
 		r.Get("/policies/compliance", h.listPolicyCompliance)
 		r.Get("/policies/{id}/compliance", h.listPolicyDeviceCompliance)
@@ -230,6 +232,7 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 			r.With(requireHuman).Post("/admin-access-requests/{id}/respond", h.respondAdminRequest)
 			// Отзыв НЕ гейтим: это защитное действие, автоматике его запрещать вредно.
 			r.Post("/admin-access-requests/{id}/revoke", h.revokeAdminRequest)
+			r.Post("/help-requests/{id}/status", h.setHelpRequestStatus)
 			r.Post("/policies", h.createPolicy)
 			r.Delete("/policies/{id}", h.deletePolicy)
 			r.Post("/scripts", h.createScript)
