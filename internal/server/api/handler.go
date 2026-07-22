@@ -179,6 +179,11 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 		r.Get("/devices", h.listDevices)
 		r.Get("/devices/{id}", h.getDevice)
 		r.Get("/devices/{id}/tasks", h.listTasks)
+		// Телеметрия устройства — read-only (весь парк виден всем ролям).
+		r.Get("/devices/{id}/metrics", h.getDeviceMetrics)
+		r.Get("/devices/{id}/metrics/latest", h.getDeviceMetricsLatest)
+		r.Get("/devices/{id}/app-usage", h.getDeviceAppUsage)
+		r.Get("/devices/{id}/telemetry-config", h.getDeviceTelemetryConfig)
 		r.Get("/alerts", h.listAlerts)
 		// requireHuman: ручка отдаёт telegram link_token ВЛАДЕЛЬЦА claims.UserID.
 		// Под токеном это админ-создатель → его непогашенный линк-токен утекал
@@ -207,6 +212,8 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 			r.Delete("/devices/{id}", h.deleteDevice)
 			r.Post("/devices/{id}/lock", h.lockDevice)
 			r.Post("/devices/{id}/unlock", h.unlockDevice)
+			// Privacy-тумблер сбора аналитики приложений (включение слежки — с аудитом).
+			r.Put("/devices/{id}/telemetry-config", h.setDeviceTelemetryConfig)
 			// requireHuman: вывод из эксплуатации необратим и деструктивен — агент сносит
 			// серт/службу/состояние, устройство уходит в терминальный decommissioned.
 			// Автоматике/сервисному токену такое запрещаем (🔴 правило requireHuman).

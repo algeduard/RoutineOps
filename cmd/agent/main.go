@@ -55,6 +55,7 @@ import (
 	"github.com/Floodww/RoutineOps/internal/agent/service"
 	"github.com/Floodww/RoutineOps/internal/agent/status"
 	"github.com/Floodww/RoutineOps/internal/agent/tamper"
+	"github.com/Floodww/RoutineOps/internal/agent/telemetry"
 	"github.com/Floodww/RoutineOps/internal/agent/transport"
 	pb "github.com/Floodww/RoutineOps/proto"
 	"google.golang.org/grpc/codes"
@@ -1608,6 +1609,22 @@ func runAgent(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Version:  version,
 	}
 	go reporter.Run(ctx)
+
+	// Телеметрия устройства: метрики ресурсов (CPU/RAM/диск/сеть) — всегда; аналитика
+	// активности приложений — только если локально разрешена (cfg.TelemetryAppUsage) И
+	// включена сервером для устройства (FetchTelemetryConfig). Прямой unary с ретраем
+	// (метрики допустимо терять), отдельно от heartbeat (ADR-5).
+	telemetryReporter := &telemetry.Reporter{
+		Dialer:             dialer,
+		Log:                log,
+		SampleInterval:     cfg.TelemetrySampleInterval,
+		ReportInterval:     cfg.TelemetryReportInterval,
+		ConfigPollInterval: cfg.TelemetryConfigPoll,
+		IdleThreshold:      cfg.TelemetryIdleThreshold,
+		AppUsageAllowed:    cfg.TelemetryAppUsage,
+		BatchMax:           cfg.TelemetryBatchMax,
+	}
+	go telemetryReporter.Run(ctx)
 
 	// Command Listener: выполняет задачи, пришедшие в Connect-стриме. Результат
 	// уходит durable-путём через outbox (KindTask) — обрыв связи или рестарт

@@ -308,6 +308,49 @@ export interface ScriptPolicyCompliance {
   unknown: number
 }
 
+// ── Телеметрия устройств ─────────────────────────────────────────────────────
+
+// ResourceMetric — точка истории метрик ресурсов (или последний сэмпл).
+// GET /devices/{id}/metrics?range=1h|24h (история, даунсэмпленная сервером) и
+// GET /devices/{id}/metrics/latest (живое значение; может вернуть null).
+export interface ResourceMetric {
+  ts: string
+  cpu_percent: number
+  mem_used_bytes: number
+  mem_total_bytes: number
+  disk_percent: number
+  net_rx_bps: number
+  net_tx_bps: number
+}
+
+// AppUsageRow — использование приложения за день (агрегат).
+export interface AppUsageRow {
+  day: string
+  app_name: string
+  foreground_seconds: number
+}
+
+// DailyActivityRow — активное/простойное время за день.
+export interface DailyActivityRow {
+  day: string
+  active_seconds: number
+  idle_seconds: number
+}
+
+// AppUsageResponse — GET /devices/{id}/app-usage?range=7d|30d. app_usage_enabled
+// приезжает вместе с данными, чтобы UI показал состояние privacy-тумблера и
+// объяснил пустой отчёт (сбор выключен по умолчанию).
+export interface AppUsageResponse {
+  app_usage_enabled: boolean
+  apps: AppUsageRow[]
+  days: DailyActivityRow[]
+}
+
+// TelemetryConfig — GET/PUT /devices/{id}/telemetry-config (PUT только it_admin).
+export interface TelemetryConfig {
+  app_usage_enabled: boolean
+}
+
 // LicenseStatus — снимок энтайтлмента (GET/POST /license, только enterprise-сборка;
 // в open-core роута нет → 404). Два флага, а не один: configured=лицензия валидно
 // подписана и активирована, valid=она ещё и в сроке. Их пара различает «истекла»

@@ -3,6 +3,8 @@ import { useParams, useNavigate } from "react-router-dom"
 import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown } from "lucide-react"
 import api, { Device, Software, Task, Script, DeviceDetailResponse, ReenrollResponse, deviceRunsScript, agentPlatform, DEVICE_STATUS } from "@/lib/api"
 import { GroupBadge } from "@/components/GroupBadge"
+import DeviceResources from "@/components/DeviceResources"
+import DeviceActivity from "@/components/DeviceActivity"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select } from "@/components/ui/select"
@@ -519,6 +521,10 @@ export default function DeviceDetail() {
           </div>
         </div>
       </div>
+
+      {id && <DeviceResources deviceId={id} />}
+
+      {id && <DeviceActivity deviceId={id} isAdmin={isAdmin} />}
 
       <div className="glass">
         <div className="px-5 pt-4 pb-3">

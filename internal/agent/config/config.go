@@ -117,6 +117,25 @@ type Config struct {
 	// (provisioning на энролле, revoke на локе), только логировать намеченные шаги.
 	// Тот же паттерн, что AdminDryRun (обязательный флаг перед боевым включением).
 	FilevaultDryRun bool
+
+	// Телеметрия устройств (метрики ресурсов + аналитика активности приложений).
+	// TelemetrySampleInterval — период снятия среза ресурсов/активности.
+	TelemetrySampleInterval time.Duration
+	// TelemetryReportInterval — период отправки накопленных батчей телеметрии.
+	TelemetryReportInterval time.Duration
+	// TelemetryConfigPoll — период опроса серверного конфига телеметрии
+	// (FetchTelemetryConfig: флаг app_usage_enabled).
+	TelemetryConfigPoll time.Duration
+	// TelemetryIdleThreshold — простой ввода, после которого пользователь считается
+	// неактивным (для активного-vs-простой времени).
+	TelemetryIdleThreshold time.Duration
+	// TelemetryAppUsage — ЛОКАЛЬНОЕ разрешение на сбор аналитики приложений/времени
+	// за ПК (privacy kill-switch). Дефолт true = «разрешено», но фактический сбор
+	// идёт ТОЛЬКО когда сервер включил app_usage_enabled для устройства
+	// (AND-семантика). false — жёстко выключает сбор аналитики независимо от сервера.
+	TelemetryAppUsage bool
+	// TelemetryBatchMax — потолок буфера сэмплов ресурсов между отправками.
+	TelemetryBatchMax int
 }
 
 // Дефолтные ОТНОСИТЕЛЬНЫЕ пути изменяемого состояния. Вынесены в константы,
@@ -212,6 +231,18 @@ func Load(fs *flag.FlagSet, args []string) (*Config, error) {
 		"каталог write-ahead escrow-записей FileVault (enterprise; env ROUTINEOPS_FILEVAULT_ESCROW_DIR)")
 	fs.BoolVar(&c.FilevaultDryRun, "filevault-dry-run", envBool("ROUTINEOPS_FILEVAULT_DRYRUN"),
 		"не выполнять привилегированные FileVault-операции, только логировать (env ROUTINEOPS_FILEVAULT_DRYRUN)")
+	fs.DurationVar(&c.TelemetrySampleInterval, "telemetry-sample", envDuration("ROUTINEOPS_TELEMETRY_SAMPLE", 15*time.Second),
+		"период снятия среза телеметрии ресурсов/активности (env ROUTINEOPS_TELEMETRY_SAMPLE)")
+	fs.DurationVar(&c.TelemetryReportInterval, "telemetry-report", envDuration("ROUTINEOPS_TELEMETRY_REPORT", time.Minute),
+		"период отправки батчей телеметрии (env ROUTINEOPS_TELEMETRY_REPORT)")
+	fs.DurationVar(&c.TelemetryConfigPoll, "telemetry-config-poll", envDuration("ROUTINEOPS_TELEMETRY_CONFIG_POLL", 5*time.Minute),
+		"период опроса серверного конфига телеметрии, FetchTelemetryConfig (env ROUTINEOPS_TELEMETRY_CONFIG_POLL)")
+	fs.DurationVar(&c.TelemetryIdleThreshold, "telemetry-idle", envDuration("ROUTINEOPS_TELEMETRY_IDLE", time.Minute),
+		"простой ввода, после которого пользователь считается неактивным (env ROUTINEOPS_TELEMETRY_IDLE)")
+	fs.BoolVar(&c.TelemetryAppUsage, "telemetry-app-usage", envBoolDefault("ROUTINEOPS_TELEMETRY_APP_USAGE", true),
+		"локально РАЗРЕШИТЬ сбор аналитики приложений (фактический сбор — только при включении на сервере; env ROUTINEOPS_TELEMETRY_APP_USAGE)")
+	fs.IntVar(&c.TelemetryBatchMax, "telemetry-batch-max", envInt("ROUTINEOPS_TELEMETRY_BATCH_MAX", 240),
+		"потолок буфера сэмплов ресурсов между отправками (env ROUTINEOPS_TELEMETRY_BATCH_MAX)")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -255,6 +286,20 @@ func Load(fs *flag.FlagSet, args []string) (*Config, error) {
 	if c.OutboxFlush <= 0 {
 		return nil, fmt.Errorf("outbox flush interval must be > 0, got %s", c.OutboxFlush)
 	}
+	// Интервалы телеметрии идут в time.NewTicker — 0/отрицательное уронило бы горутину
+	// паникой, поэтому валидируем как остальные интервалы.
+	if c.TelemetrySampleInterval <= 0 {
+		return nil, fmt.Errorf("telemetry sample interval must be > 0, got %s", c.TelemetrySampleInterval)
+	}
+	if c.TelemetryReportInterval <= 0 {
+		return nil, fmt.Errorf("telemetry report interval must be > 0, got %s", c.TelemetryReportInterval)
+	}
+	if c.TelemetryConfigPoll <= 0 {
+		return nil, fmt.Errorf("telemetry config poll interval must be > 0, got %s", c.TelemetryConfigPoll)
+	}
+	if c.TelemetryIdleThreshold <= 0 {
+		return nil, fmt.Errorf("telemetry idle threshold must be > 0, got %s", c.TelemetryIdleThreshold)
+	}
 	return c, nil
 }
 
@@ -268,6 +313,24 @@ func env(key, def string) string {
 func envBool(key string) bool {
 	v := os.Getenv(key)
 	return v == "1" || v == "true" || v == "yes"
+}
+
+// envBoolDefault — булев env с ненулевым дефолтом (envBool всегда дефолтит false).
+// Нужен флагам, которые по умолчанию ВКЛЮЧЕНЫ (напр. локальное разрешение сбора
+// телеметрии): пустой/невалидный env → def, явные false-значения → false.
+func envBoolDefault(key string, def bool) bool {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return def
+	}
+	switch v {
+	case "1", "true", "yes":
+		return true
+	case "0", "false", "no":
+		return false
+	default:
+		return def
+	}
 }
 
 func envInt(key string, def int) int {
