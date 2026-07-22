@@ -45,6 +45,11 @@ const M = {
   textEnded: { ru: "Сеанс завершён.", en: "Session ended." },
   textDenied: { ru: "Пользователь на устройстве отклонил удалённый доступ.", en: "The user on the device denied remote access." },
   textError: { ru: "Не удалось установить сеанс.", en: "Failed to establish the session." },
+  unattendedBadge: { ru: "Unattended", en: "Unattended" },
+  unattendedHint: {
+    ru: "Сеанс без запроса согласия (по политике устройства). Пользователю не показывался запрос — но на устройстве видна плашка «идёт сеанс», а сам сеанс записан в аудит.",
+    en: "Unattended session (per device policy). No consent prompt was shown to the user — but the device shows the \"session in progress\" banner and the session is recorded in the audit log.",
+  },
 }
 
 export default function RemoteDesktop() {
@@ -60,6 +65,9 @@ export default function RemoteDesktop() {
   const [errMsg, setErrMsg] = useState("")
   const [control, setControl] = useState(false)
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
+  // unattended — сервер сообщает в ready, что сессия открыта без запроса согласия
+  // (по opt-in-политике устройства). Показываем явную пометку админу.
+  const [unattended, setUnattended] = useState(false)
 
   useEffect(() => {
     controlRef.current = control
@@ -76,12 +84,13 @@ export default function RemoteDesktop() {
 
     ws.onmessage = async (ev) => {
       if (typeof ev.data === "string") {
-        let m: { type?: string; w?: number; h?: number; code?: number; message?: string }
+        let m: { type?: string; w?: number; h?: number; code?: number; message?: string; unattended?: boolean }
         try { m = JSON.parse(ev.data) } catch { return }
         if (m.type === "ready") {
           ready = true
           const w = m.w ?? 0, h = m.h ?? 0
           setSize({ w, h })
+          setUnattended(!!m.unattended)
           const c = canvasRef.current
           if (c) { c.width = w; c.height = h }
           setPhase("active")
@@ -179,6 +188,11 @@ export default function RemoteDesktop() {
         </Button>
         <h1 className="text-lg font-semibold">{t(M.title)}</h1>
         <PhasePill phase={phase} />
+        {phase === "active" && unattended && (
+          <span className="rounded px-2 py-0.5 text-xs font-medium bg-amber-500/15 text-amber-600" title={t(M.unattendedHint)}>
+            {t(M.unattendedBadge)}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <Button
             variant={control ? "default" : "outline"}
@@ -219,6 +233,12 @@ export default function RemoteDesktop() {
           </div>
         )}
       </div>
+
+      {phase === "active" && unattended && (
+        <p className="text-xs text-amber-600">
+          {t(M.unattendedHint)}
+        </p>
+      )}
 
       {control && phase === "active" && (
         <p className="text-xs text-muted-foreground">

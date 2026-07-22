@@ -37,6 +37,49 @@ func WithRemoteDesktop(reg *registry.Registry, bridge *remotedesktop.Bridge) Rou
 	}
 }
 
+// setRDUnattendedRequest — тело PUT /devices/{id}/rd-unattended. Указатель, чтобы
+// отличить отсутствие поля от явного false (нельзя случайно выключить из-за пустого JSON).
+type setRDUnattendedRequest struct {
+	Unattended *bool `json:"unattended"`
+}
+
+type rdUnattendedResponse struct {
+	Unattended bool `json:"unattended"`
+}
+
+// setDeviceRDUnattended включает/выключает opt-in unattended-доступ удалённого
+// рабочего стола для устройства (миграция 039, devices.rd_unattended). it_admin +
+// requireHuman (см. маршрут) + аудит: включение снимает consent-ГЕЙТ для будущих
+// сеансов этого устройства — чувствительное действие, оно должно быть решением
+// ЧЕЛОВЕКА (не сервисного токена) и прослеживаемо. Что unattended НЕ трогает: плашку
+// «идёт сеанс» на устройстве и аудит старта/стопа сеансов — они остаются всегда
+// (unattended убирает подтверждение, не видимость).
+func (h *Handler) setDeviceRDUnattended(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req setRDUnattendedRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if req.Unattended == nil {
+		http.Error(w, "unattended is required", http.StatusBadRequest)
+		return
+	}
+	found, err := h.db.SetRDUnattended(r.Context(), id, *req.Unattended)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	claims := r.Context().Value(claimsKey).(*jwtClaims)
+	h.audit(r.Context(), claims.UserID, claims.Email, "set_rd_unattended", "device", id,
+		map[string]bool{"unattended": *req.Unattended})
+	writeJSON(w, http.StatusOK, rdUnattendedResponse{Unattended: *req.Unattended})
+}
+
 // wsInputEvent — событие ввода из браузера (browser→server). Координаты мыши
 // нормализованы 0..1 по видимой области кадра (устойчивы к масштабу/ресайзу).
 type wsInputEvent struct {
@@ -81,6 +124,18 @@ func (h *Handler) remoteDesktopWS(w http.ResponseWriter, r *http.Request) {
 		actorID, actorEmail = claims.UserID, claims.Email
 	}
 
+	// Политика unattended-доступа (opt-in на устройство, миграция 039). Когда включена —
+	// сообщаем агенту в START-команде, что для ЭТОЙ сессии можно пропустить запрос
+	// согласия пользователя. Плашка «идёт сеанс» и аудит старта/стопа при этом
+	// СОХРАНЯЮТСЯ (unattended снимает подтверждение, не видимость). Ошибка чтения или
+	// неизвестное устройство → unattended=false (fail-safe: без явного opt-in согласие
+	// НИКОГДА не пропускается).
+	unattended, _, err := h.db.GetRDUnattended(ctx, id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
 	// Регистрируем сессию и просим устройство поднять хелпер захвата.
 	sess := h.rdBridge.Create(cn)
 	defer h.rdBridge.Remove(sess.ID)
@@ -88,8 +143,9 @@ func (h *Handler) remoteDesktopWS(w http.ResponseWriter, r *http.Request) {
 	startTask := &pb.Task{
 		TaskId: "rd-" + sess.ID,
 		RemoteDesktop: &pb.RemoteDesktopCommand{
-			SessionId: sess.ID,
-			Action:    pb.RemoteDesktopAction_REMOTE_DESKTOP_ACTION_START,
+			SessionId:  sess.ID,
+			Action:     pb.RemoteDesktopAction_REMOTE_DESKTOP_ACTION_START,
+			Unattended: unattended,
 		},
 	}
 	if !h.registry.Send(cn, startTask) {
@@ -97,8 +153,10 @@ func (h *Handler) remoteDesktopWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Аудит старта включает признак unattended: факт «сеанс шёл БЕЗ запроса согласия»
+	// должен быть виден при разборе (наравне с opt-in-переключением политики).
 	h.audit(ctx, actorID, actorEmail, "remote_desktop_start", "device", id,
-		map[string]string{"session_id": sess.ID})
+		map[string]any{"session_id": sess.ID, "unattended": unattended})
 	started := time.Now()
 
 	// Апгрейд в WebSocket. Origin проверяется по умолчанию (same-origin) — плюс
@@ -134,11 +192,13 @@ func (h *Handler) remoteDesktopWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Сообщаем браузеру, что сессия готова, и размеры источника.
+	// Сообщаем браузеру, что сессия готова, размеры источника и режим доступа. Флаг
+	// unattended даёт вебу показать явную пометку «сеанс без запроса согласия».
 	_ = writeWSJSON(ctx, c, map[string]any{
-		"type": "ready",
-		"w":    hello.GetScreenWidth(),
-		"h":    hello.GetScreenHeight(),
+		"type":       "ready",
+		"w":          hello.GetScreenWidth(),
+		"h":          hello.GetScreenHeight(),
+		"unattended": unattended,
 	})
 
 	// browser→agent: читаем события ввода и кладём в мост.

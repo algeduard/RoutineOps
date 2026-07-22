@@ -1,0 +1,20 @@
+# Кодоген Go из proto через buf (protoc в среде может отсутствовать; buf вызывает
+# те же плагины protoc-gen-go / protoc-gen-go-grpc). Запускать С КОРНЕМ МОДУЛЯ = КОРЕНЬ
+# РЕПО, чтобы import-путь файла был `proto/agent.proto` (совпадает с раскладкой
+# `make proto` и с уже закоммиченными файлами: символы file_proto_agent_proto_*,
+# `// source: proto/agent.proto`). С paths=source_relative и out: . результат ложится
+# в proto/agent.pb.go и proto/agent_grpc.pb.go.
+#
+# ВАЖНО: buf.yaml объявляет модуль как `path: proto` — это КОНФИГ BREAKING-ПРОВЕРКИ, а
+# не кодогена; при нём import-путь стал бы `agent.proto` и переименовал бы все
+# внутренние символы. Поэтому генерируют с корнем-репо: buf.yaml на время кодогена
+# отодвигают (см. Makefile / CI-шаг), либо переопределяют `--config`. Изменения
+# контракта — только аддитивные (ADR-4); buf breaking стережёт совместимость.
+version: v2
+plugins:
+  - local: protoc-gen-go
+    out: .
+    opt: paths=source_relative
+  - local: protoc-gen-go-grpc
+    out: .
+    opt: paths=source_relative

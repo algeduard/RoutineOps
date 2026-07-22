@@ -148,6 +148,18 @@ const M = {
   lockScreenHint:      { ru: "На экране устройства появится замок с паролем разблокировки. Пароль генерируется один раз.", en: "A lock with the unlock password will appear on the device screen. The password is generated once." },
   reasonLabel:         { ru: "Причина (необязательно)", en: "Reason (optional)" },
   reasonPlaceholder:   { ru: "Нарушение ИБ, утеря ноутбука...", en: "Security incident, lost laptop..." },
+  rdUnattendedEnable:  { ru: "Включить unattended-доступ", en: "Enable unattended access" },
+  rdUnattendedDisable: { ru: "Выключить unattended-доступ", en: "Disable unattended access" },
+  rdUnattendedOn:      { ru: "Unattended-доступ: включён", en: "Unattended access: on" },
+  rdUnattendedEnableTitle:  { ru: "Включить unattended-доступ?", en: "Enable unattended access?" },
+  rdUnattendedEnableDesc: {
+    ru: "На «{host}» удалённые сеансы будут начинаться БЕЗ запроса согласия у пользователя. Плашка «идёт сеанс» на устройстве и запись в аудит сохраняются — убирается только подтверждение. Включайте только для серверов/киосков или устройств с явного согласия.",
+    en: "On \"{host}\", remote sessions will start WITHOUT asking the user for consent. The on-screen \"session in progress\" banner and the audit record are kept — only the confirmation prompt is removed. Enable only for servers/kiosks or devices with explicit consent.",
+  },
+  rdUnattendedEnableConfirm: { ru: "Включить", en: "Enable" },
+  rdUnattendedEnabled:  { ru: "Unattended-доступ включён", en: "Unattended access enabled" },
+  rdUnattendedDisabled: { ru: "Unattended-доступ выключен", en: "Unattended access disabled" },
+  rdUnattendedFailed:   { ru: "Не удалось изменить unattended-доступ", en: "Failed to change unattended access" },
 }
 
 export default function DeviceDetail() {
@@ -171,6 +183,8 @@ export default function DeviceDetail() {
   const [logTask, setLogTask] = useState<Task | null>(null)
   const [confirmBlock, setConfirmBlock] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmUnattended, setConfirmUnattended] = useState(false)
+  const [togglingUnattended, setTogglingUnattended] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [reenrollOpen, setReenrollOpen] = useState(false)
   const [reenrolling, setReenrolling] = useState(false)
@@ -347,6 +361,22 @@ export default function DeviceDetail() {
     }
   }
 
+  // setUnattended включает/выключает opt-in unattended-доступ удалённого стола. Это
+  // снимает (или возвращает) запрос согласия на устройстве; плашка «идёт сеанс» и
+  // аудит сеансов не затрагиваются. Сервер требует it_admin + человека и пишет аудит.
+  async function setUnattended(enabled: boolean) {
+    setTogglingUnattended(true)
+    try {
+      await api.put(`/devices/${id}/rd-unattended`, { unattended: enabled })
+      setDevice((d) => (d ? { ...d, rd_unattended: enabled } : d))
+      toast({ title: t(enabled ? M.rdUnattendedEnabled : M.rdUnattendedDisabled), variant: "success" })
+    } catch {
+      toast({ title: t(M.rdUnattendedFailed), variant: "destructive" })
+    } finally {
+      setTogglingUnattended(false)
+    }
+  }
+
   function reenrollCommand() {
     if (!reenrollResult) return ""
     const enrollURL = `${window.location.origin}/api/v1/enroll`
@@ -375,6 +405,7 @@ export default function DeviceDetail() {
         <h1 className="text-xl font-semibold text-foreground">{device.hostname}</h1>
         {statusBadge(device.status)}
         {device.lock_status === "locked" && <Badge variant="destructive">{t(M.screenLocked)}</Badge>}
+        {device.rd_unattended && <Badge variant="outline" className="border-amber-500/50 text-amber-600">{t(M.rdUnattendedOn)}</Badge>}
         {device.groups?.map((g) => <GroupBadge key={g.id} group={g} />)}
         <div className="ml-auto flex gap-2">
           {/* Действия: перерегистрация и блокировка — только it_admin */}
@@ -398,6 +429,15 @@ export default function DeviceDetail() {
               >
                 <MonitorPlay className="mr-2 h-3.5 w-3.5 opacity-70" />
                 {t(M.remoteDesktop)}
+              </DropdownMenuItem>
+              {/* Unattended-доступ (opt-in): включение — через подтверждение (снимает
+                  запрос согласия); выключение — сразу (безопасное направление). */}
+              <DropdownMenuItem
+                onSelect={() => { if (device.rd_unattended) { setUnattended(false) } else { setConfirmUnattended(true) } }}
+                disabled={togglingUnattended}
+              >
+                <ShieldCheck className={`mr-2 h-3.5 w-3.5 ${device.rd_unattended ? "text-amber-500" : "opacity-70"}`} />
+                {device.rd_unattended ? t(M.rdUnattendedDisable) : t(M.rdUnattendedEnable)}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               {device.lock_status === "locked" ? (
@@ -900,6 +940,17 @@ export default function DeviceDetail() {
         confirmLabel={t(M.deleteConfirm)}
         destructive
         onConfirm={removeDevice}
+      />
+
+      {/* Включение unattended-доступа: чувствительно (снимает запрос согласия), поэтому
+          через явное подтверждение с объяснением, что плашка и аудит остаются. */}
+      <ConfirmDialog
+        open={confirmUnattended}
+        onOpenChange={setConfirmUnattended}
+        title={t(M.rdUnattendedEnableTitle)}
+        description={t(M.rdUnattendedEnableDesc, { host: device.hostname })}
+        confirmLabel={t(M.rdUnattendedEnableConfirm)}
+        onConfirm={() => setUnattended(true)}
       />
 
       {/* Диалог блокировки экрана */}

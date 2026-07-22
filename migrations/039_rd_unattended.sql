@@ -1,0 +1,15 @@
+-- 039: unattended-режим удалённого рабочего стола (opt-in на устройство, DEFAULT OFF).
+--
+-- Обычный сеанс удалённого стола ATTENDED: на устройстве показывается запрос
+-- согласия, и без явного «Разрешить» сеанс не начинается (см.
+-- internal/agent/remotedesktop/consent_windows.go). Для серверов/киосков/парков без
+-- постоянного пользователя это неудобно, поэтому вводится ЯВНЫЙ per-device opt-in:
+-- когда rd_unattended = true, хелпер ПРОПУСКАЕТ запрос согласия (снимается только
+-- consent-ГЕЙТ), но плашка «идёт сеанс» и полный аудит старта/стопа СОХРАНЯЮТСЯ —
+-- unattended убирает подтверждение, НЕ видимость.
+--
+-- Дефолт false (fail-safe): пока it_admin явно не включит unattended для устройства
+-- (PUT /devices/{id}/rd-unattended, it_admin + requireHuman + аудит), поведение
+-- неизменно — согласие по-прежнему требуется. Consent-skip НИКОГДА не применяется к
+-- устройству, которое не сделало opt-in.
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS rd_unattended BOOLEAN NOT NULL DEFAULT false;
