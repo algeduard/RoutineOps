@@ -5,6 +5,7 @@ go 1.26.4
 require (
 	fyne.io/systray v1.12.2
 	github.com/alicebob/miniredis/v2 v2.38.0
+	github.com/coder/websocket v1.8.15
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-chi/httprate v0.15.0
 	github.com/golang-jwt/jwt/v5 v5.3.1

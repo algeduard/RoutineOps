@@ -105,6 +105,13 @@ type Executor struct {
 	// teardown — service/tamper/файлы — живёт в cmd/agent, ему известны пути).
 	// nil = команда decommission отклоняется (сборка/окружение без обвязки).
 	onDecommission func(requestID, reason string)
+
+	// startRemoteDesktop запускает процесс-хелпер удалённого рабочего стола в
+	// активной интерактивной сессии (Windows: winsession.LaunchInActiveSession).
+	// Инъекция из cmd/agent по тому же паттерну, что onDecommission: executor не
+	// знает про winsession/пути/серты. nil = фича недоступна (не Windows/не
+	// сконфигурировано) → команда remote_desktop отклоняется, а не выполняется тихо.
+	startRemoteDesktop func(sessionID string) error
 }
 
 // LockApplier применяет команды блокировки/разблокировки устройства (реализуется
@@ -138,6 +145,11 @@ func (e *Executor) SetFileVaultRevoker(r FileVaultRevoker) { e.revoker = r }
 // (по умолчанию) → команда decommission отклоняется, а не выполняется тихо.
 // Вызывать до старта приёма задач.
 func (e *Executor) SetDecommissioner(f func(requestID, reason string)) { e.onDecommission = f }
+
+// SetRemoteDesktopLauncher подключает запуск хелпера удалённого рабочего стола.
+// nil (по умолчанию) → команда remote_desktop отклоняется. Вызывать до старта
+// приёма задач.
+func (e *Executor) SetRemoteDesktopLauncher(f func(sessionID string) error) { e.startRemoteDesktop = f }
 
 // NewExecutor creates an executor. statePath — файл для персистентной идемпотентности
 // (""=только память). enqueue — durable-очередь доставки результатов (outbox);
@@ -238,6 +250,15 @@ func (e *Executor) Shutdown() {
 func (e *Executor) handle(task *pb.Task) {
 	id := task.GetTaskId()
 
+	// Удалённый рабочий стол — эфемерная realtime-команда, идёт МИМО обычного
+	// пути (connect/ack/seen/outbox): сессия не персистится, дубли самокорректны
+	// (второй хелпер отпадёт на AttachAgent), teardown — по закрытию gRPC-стрима.
+	// Перехватываем ДО семафора и ack: строки задачи в БД нет, ack-ать нечего.
+	if rd := task.GetRemoteDesktop(); rd != nil {
+		e.handleRemoteDesktop(rd)
+		return
+	}
+
 	// Скрипт-задачи гейтим семафором ДО connect/ack/seen. Порядок критичен:
 	//  (а) seen помечается ТОЛЬКО после захвата слота — иначе задача, вытесненная
 	//      на семафоре при остановке агента (execCtx отменён), осталась бы seen,
@@ -314,6 +335,29 @@ func (e *Executor) handle(task *pb.Task) {
 		e.log.Info("задача выполнена успешно", slog.String("task_id", id))
 	}
 	e.deliver(client, result)
+}
+
+// handleRemoteDesktop обрабатывает команду сессии удалённого рабочего стола.
+// START: запускает хелпер захвата в интерактивной сессии (он сам откроет
+// bidi-стрим RemoteDesktop к серверу и вернёт session_id в RDHello). STOP:
+// для MVP no-op — сервер рвёт сессию закрытием gRPC-стрима, хелпер завершается сам.
+func (e *Executor) handleRemoteDesktop(rd *pb.RemoteDesktopCommand) {
+	sid := rd.GetSessionId()
+	if rd.GetAction() == pb.RemoteDesktopAction_REMOTE_DESKTOP_ACTION_STOP {
+		e.log.Info("remote desktop: STOP (teardown по закрытию стрима сервером)", slog.String("session_id", sid))
+		return
+	}
+	if e.startRemoteDesktop == nil {
+		e.log.Warn("remote desktop не поддерживается на этой платформе/сборке", slog.String("session_id", sid))
+		return
+	}
+	if sid == "" {
+		e.log.Warn("remote desktop: пустой session_id — команда пропущена")
+		return
+	}
+	if err := e.startRemoteDesktop(sid); err != nil {
+		e.log.Error("remote desktop: запуск хелпера", slog.String("session_id", sid), slog.Any("error", err))
+	}
 }
 
 // deliver отправляет результат задачи durable-путём: через outbox-очередь, которая

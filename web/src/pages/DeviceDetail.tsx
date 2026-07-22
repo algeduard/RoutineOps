@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
-import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown } from "lucide-react"
+import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown, MonitorPlay } from "lucide-react"
 import api, { Device, Software, Task, Script, DeviceDetailResponse, ReenrollResponse, deviceRunsScript, agentPlatform, DEVICE_STATUS } from "@/lib/api"
 import { GroupBadge } from "@/components/GroupBadge"
 import { Button } from "@/components/ui/button"
@@ -265,6 +265,16 @@ export default function DeviceDetail() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem disabled={reenrolling} onSelect={() => { setReenrollOpen(true); if (!reenrollResult) reenroll() }}>
                 Перерегистрировать
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {/* Удалённый рабочий стол: доступен только на онлайн-устройстве; если
+                  устройство офлайн — страница покажет ошибку от сервера (409). */}
+              <DropdownMenuItem
+                onSelect={() => navigate(`/devices/${device.id}/remote-desktop`)}
+                disabled={device.status !== "active"}
+              >
+                <MonitorPlay className="mr-2 h-3.5 w-3.5 opacity-70" />
+                Удалённый рабочий стол
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               {device.lock_status === "locked" ? (

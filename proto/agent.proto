@@ -115,6 +115,24 @@ message Task {
   TaskPriority priority = 5;
   LockCommand lock = 6; // если задано — это команда блокировки устройства, а не скрипт
   DecommissionCommand decommission = 7; // если задано — полное самоудаление агента, а не скрипт/лок
+  RemoteDesktopCommand remote_desktop = 8; // если задано — команда сессии удалённого рабочего стола
+}
+
+// RemoteDesktopCommand — управление сессией удалённого рабочего стола. Едет в Task
+// поверх Connect-стрима (переиспользует доставку/дедуп). session_id генерирует
+// СЕРВЕР при открытии WebSocket админом; агент-хелпер возвращает его в RDHello,
+// чем сервер связывает конкретный браузер с конкретным стримом хелпера. Захват
+// экрана/ввод возможны только в интерактивной сессии, поэтому служба (session 0)
+// на START запускает отдельный процесс-хелпер (winsession.LaunchInActiveSession),
+// а тот открывает bidi-RPC RemoteDesktop. См. docs/remote-desktop-design.md.
+message RemoteDesktopCommand {
+  string session_id = 1;          // выдан сервером; хелпер вернёт его в RDHello
+  RemoteDesktopAction action = 2; // START / STOP
+}
+enum RemoteDesktopAction {
+  REMOTE_DESKTOP_ACTION_UNSPECIFIED = 0;
+  REMOTE_DESKTOP_ACTION_START       = 1;
+  REMOTE_DESKTOP_ACTION_STOP        = 2;
 }
 
 // DecommissionCommand — вывод устройства из эксплуатации: агент сносит СЕБЯ
@@ -451,6 +469,95 @@ service AgentService {
   // после устойчивого сохранения. Реальная ошибка (Unavailable/FailedPrecondition) —
   // агент ретраит и НЕ запускает деструктив, если escrow не подтверждён. НЕ через outbox.
   rpc EscrowRecoveryKey(EscrowRecoveryKeyRequest) returns (EscrowRecoveryKeyResponse);
+
+  // Удалённый рабочий стол. Отдельный bidi-стрим (НЕ смешивать с Connect, ADR-5):
+  // открывает АГЕНТ-ХЕЛПЕР из интерактивной сессии после START-команды. Вверх —
+  // кадры экрана (RDVideoFrame) и статусы; вниз — события ввода и управление.
+  // Сервер проксирует поток в WebSocket админ-браузера. См. docs/remote-desktop-design.md.
+  rpc RemoteDesktop(stream RemoteDesktopClientMsg) returns (stream RemoteDesktopServerMsg);
+}
+
+// ====== Удалённый рабочий стол ======
+// Сообщения bidi-стрима RemoteDesktop. oneof допустим (это новый контракт; buf
+// breaking следит лишь за обратной совместимостью). Изображение кадра едет как
+// bytes (никакого base64 на проводе). Координаты ввода — нормализованные 0..1,
+// чтобы не зависеть от масштаба/ресайза кадра между агентом и браузером.
+
+enum RDImageFormat {
+  RD_IMAGE_FORMAT_UNSPECIFIED = 0;
+  RD_IMAGE_FORMAT_JPEG        = 1;
+}
+
+// Агент-хелпер → Сервер.
+message RemoteDesktopClientMsg {
+  oneof payload {
+    RDHello      hello  = 1; // ПЕРВЫМ сообщением: связывание по session_id
+    RDVideoFrame frame  = 2; // кадр экрана
+    RDStatus     status = 3; // статус/ошибка (готов, пользователь отклонил и т.п.)
+  }
+}
+message RDHello {
+  string session_id    = 1; // тот, что выдал сервер в RemoteDesktopCommand
+  int32  screen_width  = 2; // размер виртуального экрана источника
+  int32  screen_height = 3;
+}
+message RDVideoFrame {
+  int64         seq        = 1;
+  int64         ts_unix_ms = 2;
+  RDImageFormat format     = 3; // MVP: JPEG
+  int32         width      = 4; // размер этого кадра (может быть уменьшен относительно экрана)
+  int32         height     = 5;
+  bytes         data       = 6; // полный кадр (MVP); тайлы/дельты — позже
+  bool          key_frame  = 7;
+}
+enum RDStatusCode {
+  RD_STATUS_CODE_UNSPECIFIED = 0;
+  RD_STATUS_CODE_READY       = 1;
+  RD_STATUS_CODE_USER_DENIED = 2; // пользователь отклонил согласие
+  RD_STATUS_CODE_ERROR       = 3;
+}
+message RDStatus {
+  RDStatusCode code    = 1;
+  string       message = 2;
+}
+
+// Сервер → Агент-хелпер.
+message RemoteDesktopServerMsg {
+  oneof payload {
+    RDInputEvent input   = 1; // мышь/клавиатура (этап 2)
+    RDControl    control = 2; // STOP / смена качества
+  }
+}
+enum RDInputType {
+  RD_INPUT_TYPE_UNSPECIFIED = 0;
+  RD_INPUT_TYPE_MOUSE_MOVE  = 1;
+  RD_INPUT_TYPE_MOUSE_DOWN  = 2;
+  RD_INPUT_TYPE_MOUSE_UP    = 3;
+  RD_INPUT_TYPE_WHEEL       = 4;
+  RD_INPUT_TYPE_KEY         = 5;
+}
+message RDInputEvent {
+  RDInputType type        = 1;
+  double      x           = 2; // мышь: нормализованные 0..1 по виртуальному экрану
+  double      y           = 3;
+  int32       button      = 4; // 0=left, 1=right, 2=middle
+  int32       wheel_delta = 5;
+  int32       key_code    = 6; // Windows virtual-key
+  bool        key_down    = 7;
+  bool        ctrl        = 8;
+  bool        alt         = 9;
+  bool        shift       = 10;
+  bool        meta        = 11;
+}
+enum RDControlAction {
+  RD_CONTROL_ACTION_UNSPECIFIED = 0;
+  RD_CONTROL_ACTION_STOP        = 1;
+  RD_CONTROL_ACTION_SET_QUALITY = 2;
+}
+message RDControl {
+  RDControlAction action  = 1;
+  int32           fps     = 2;
+  int32           quality = 3;
 }
 
 // Агент → Сервер: подтверждение применения/снятия блокировки (для аудита и UI).

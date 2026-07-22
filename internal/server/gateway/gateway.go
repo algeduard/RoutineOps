@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Floodww/RoutineOps/internal/server/registry"
+	"github.com/Floodww/RoutineOps/internal/server/remotedesktop"
 	"github.com/Floodww/RoutineOps/internal/server/storage"
 	"github.com/Floodww/RoutineOps/internal/server/worker"
 	pb "github.com/Floodww/RoutineOps/proto"
@@ -37,7 +38,15 @@ type Gateway struct {
 	// escrowSvc — enterprise-шов FileVault recovery-escrow (internal/server/escrow).
 	// nil в open-core → EscrowRecoveryKey отвечает Unimplemented. См. escrow_seam.go.
 	escrowSvc EscrowService
+	// rd — мост сессий удалённого рабочего стола, общий с WebSocket-хендлером в api.
+	// nil → RemoteDesktop отвечает Unimplemented. Устанавливается из main.go.
+	rd *remotedesktop.Bridge
 }
+
+// SetRemoteDesktopBridge подключает мост удалённого рабочего стола (вызывается из
+// main.go тем же экземпляром, что и WebSocket-хендлер api). Отдельным методом, а не
+// параметром New, чтобы не ломать существующих вызывающих New (тесты).
+func (g *Gateway) SetRemoteDesktopBridge(b *remotedesktop.Bridge) { g.rd = b }
 
 func New(db *storage.DB, reg *registry.Registry, asynqClient *asynq.Client, logger *slog.Logger, bot Notifier) *Gateway {
 	return &Gateway{db: db, registry: reg, asynqClient: asynqClient, logger: logger, bot: bot}

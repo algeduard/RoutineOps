@@ -18,6 +18,8 @@ import (
 
 	"github.com/Floodww/RoutineOps/internal/server/enroll"
 	"github.com/Floodww/RoutineOps/internal/server/mailer"
+	"github.com/Floodww/RoutineOps/internal/server/registry"
+	"github.com/Floodww/RoutineOps/internal/server/remotedesktop"
 	"github.com/Floodww/RoutineOps/internal/server/storage"
 	"github.com/Floodww/RoutineOps/internal/server/worker"
 	"github.com/go-chi/chi/v5"
@@ -106,6 +108,12 @@ type Handler struct {
 	lockPolicy LockModePolicy
 	// telegramBotUsername — @username бота этого деплоя (getMe). nil = бот не настроен.
 	telegramBotUsername func(context.Context) string
+	// registry и rdBridge — для удалённого рабочего стола: registry шлёт START-команду
+	// подключённому устройству по Connect-стриму, rdBridge связывает WebSocket
+	// админа с gRPC-стримом агента-хелпера. Оба nil в open-core без опции
+	// WithRemoteDesktop → WebSocket-ручка недоступна. См. remotedesktop_handler.go.
+	registry *registry.Registry
+	rdBridge *remotedesktop.Bridge
 }
 
 func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *enroll.CASigner, publicWebURL, releasesDir string, m *mailer.Mailer, cookieSecure bool, opts ...RouterOption) http.Handler {
