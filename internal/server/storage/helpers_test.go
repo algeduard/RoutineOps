@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,11 +32,20 @@ func newDB(t *testing.T) *storage.DB {
 	return db
 }
 
+// uniqCtr разводит два подряд идущих uniq() даже когда time.Now() не успел
+// тикнуть между вызовами: под Windows разрешение таймера грубое, и под нагрузкой
+// full-suite два UnixNano подряд могут совпасть → одинаковый суффикс/run_id →
+// коллизия по уникальным ключам (напр. SaveScriptResult с ON CONFLICT(run_id)
+// DO NOTHING молча схлопывает вторую строку). Счётчик делает суффикс монотонно
+// уникальным внутри процесса, а таймстемп по-прежнему разводит значения между
+// прогонами на общей БД.
+var uniqCtr atomic.Uint64
+
 // uniq returns a unique suffix for the test — avoids unique-constraint collisions
 // across tests that share one DB.
 func uniq(t *testing.T) string {
 	t.Helper()
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), uniqCtr.Add(1))
 }
 
 // mustCreateUser inserts a user and returns it.
