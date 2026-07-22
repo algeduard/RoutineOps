@@ -1,4 +1,4 @@
-//go:build !windows && (!darwin || !cgo)
+//go:build !windows && !linux && (!darwin || !cgo)
 
 package lockui
 
@@ -9,8 +9,10 @@ import (
 	"testing"
 )
 
-// TestRun_UnsupportedPlatform — заглушка Run на Linux (и на CGO=0-сборках macOS)
-// должна лишь предупредить в лог и вернуться, не паниковать и не блокировать.
+// TestRun_UnsupportedPlatform — заглушка Run на прочих Unix (и на CGO=0-сборках
+// macOS) должна лишь предупредить в лог и вернуться, не паниковать и не блокировать.
+// Linux теперь имеет собственный X11-замок (lockui_linux.go) и под эту заглушку
+// не подпадает.
 func TestRun_UnsupportedPlatform(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))

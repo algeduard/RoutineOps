@@ -1,12 +1,14 @@
-//go:build !windows && !darwin
+//go:build linux
 
 package lock
 
 import "log/slog"
 
-// NewPlatformLocker — Locker для службы под текущей ОС. Вне Windows и macOS
-// полноэкранный оверлей пока не реализован — лог-заглушка (состояние всё равно
-// персистится в lock.json). exe не используется.
-func NewPlatformLocker(_ string, log *slog.Logger) Locker {
-	return NewLogLocker(log)
+// NewPlatformLocker — Locker для службы под Linux: SessionLocker поднимает
+// полноэкранный X11-замок (internal/agent/lockui) в активной графической сессии
+// пользователя. Служба живёт в session 0 без дисплея и GUI рисовать не может, но
+// под root может запустить процесс в сессии залогиненного пользователя. exe —
+// путь к бинарю агента (os.Executable).
+func NewPlatformLocker(exe string, log *slog.Logger) Locker {
+	return NewSessionLocker(exe, log)
 }
