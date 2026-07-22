@@ -50,17 +50,45 @@ func sanitizeURL(url string) string {
 	return url
 }
 
-// privateMarkers — признаки приватного/инкогнито окна браузера в заголовке. При
-// совпадении заголовок НЕ собирается (приватный просмотр — явный сигнал, что
-// пользователь не хочет истории; см. docs/device-telemetry-design.md §4). Сравнение
-// регистронезависимое по подстроке; список аддитивный.
+// privateMarkers — локализованные признаки приватного/инкогнито-окна браузера в
+// заголовке. При совпадении URL/заголовок НЕ собираются (приватный просмотр — явный
+// сигнал, что пользователь не хочет истории; см. docs/device-telemetry-design.md §4).
+// Сравнение регистронезависимое по подстроке; список аддитивный.
+//
+// ⚠ Детект по заголовку — эвристика best-effort, а НЕ криптографическая гарантия: браузер
+// локализует слово-маркер, и покрыть все языки списком нельзя. Ниже — основные локали
+// Chromium/Edge/Firefox; для непокрытой локали приватное окно может не распознаться.
+// Поэтому это не единственная защита: сбор URL по умолчанию ВЫКЛЮЧЕН (capture_urls,
+// админ+аудит), читается лишь из заведомых браузеров, и при обрезанном (нечитаемом
+// целиком) заголовке чтение URL пропускается — fail-closed (см. foreground_windows.go).
 var privateMarkers = []string{
-	"инкогнито",          // Chrome / Яндекс.Браузер (RU)
-	"incognito",          // Chrome (EN)
-	"inprivate",          // Edge
-	"приватный просмотр", // Firefox (RU)
-	"private browsing",   // Firefox (EN)
-	"private window",     // Safari/прочие (EN)
+	// Chromium — «Инкогнито» (локализованное слово в заголовке, обычно в скобках)
+	"incognito", // en, it, nl, id, pt-…
+	"инкогнито", // ru, uk, bg
+	"inkognito", // de, pl, cs, sk, sv, da, no, hr, sl, lt, lv, et
+	"incógnito", // es, gl
+	"anônima",   // pt-BR («Guia anônima»)
+	"anónima",   // pt-PT
+	"gizli",     // tr
+	"無痕",        // zh-TW
+	"无痕",        // zh-CN
+	"シークレット",    // ja («シークレット モード»)
+	"시크릿",       // ko
+	// Edge — InPrivate (в большинстве локалей бренд не переводится)
+	"inprivate",
+	// Firefox / прочие — «Приватный просмотр»
+	"private browsing",    // en
+	"private window",      // en / Safari
+	"приватный просмотр",  // ru
+	"privater modus",      // de
+	"privates fenster",    // de
+	"navigation privée",   // fr (Chrome и Firefox)
+	"navegación privada",  // es
+	"navegação privada",   // pt
+	"navigazione anonima", // it
+	"tryb prywatny",       // pl
+	"privénavigatie",      // nl
+	"privévenster",        // nl
 }
 
 // isPrivateBrowsing сообщает, похоже ли окно на приватный/инкогнито-режим браузера.

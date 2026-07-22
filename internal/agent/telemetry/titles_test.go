@@ -12,6 +12,20 @@ func TestIsPrivateBrowsing(t *testing.T) {
 		"Пример — Microsoft Edge — InPrivate",
 		"Example (Private Browsing) — Mozilla Firefox",
 		"Приватный просмотр — Firefox",
+		// Локали не-RU/EN (регресс на fail-open: браузер локализует слово-маркер).
+		"Neuer Tab – Google Chrome (Inkognito)",             // de Chrome
+		"Beispiel — Mozilla Firefox (Privater Modus)",       // de Firefox
+		"Nouvel onglet — Google Chrome (Navigation privée)", // fr
+		"Ejemplo — Google Chrome (Incógnito)",               // es Chrome
+		"Ejemplo — Navegación privada — Firefox",            // es Firefox
+		"Exemplo — Google Chrome (Guia anônima)",            // pt-BR
+		"Esempio — Navigazione anonima — Firefox",           // it Firefox
+		"Nowa karta — Google Chrome (Tryb prywatny)",        // pl
+		"Voorbeeld — Firefox (Privévenster)",                // nl
+		"Yeni Sekme — Google Chrome (Gizli)",                // tr
+		"新标签页 - Google Chrome（无痕式）",                         // zh-CN
+		"新しいタブ - Google Chrome（シークレット モード）",                 // ja
+		"새 탭 - Google Chrome(시크릿 모드)",                       // ko
 	}
 	for _, s := range private {
 		if !isPrivateBrowsing(s) {
@@ -21,7 +35,8 @@ func TestIsPrivateBrowsing(t *testing.T) {
 	normal := []string{
 		"Хабр — Google Chrome",
 		"routineops — main — Visual Studio Code",
-		"", // пусто
+		"Private Equity News — Google Chrome", // «private» в контенте ≠ приватный режим (не ловим ложно)
+		"",                                    // пусто
 	}
 	for _, s := range normal {
 		if isPrivateBrowsing(s) {

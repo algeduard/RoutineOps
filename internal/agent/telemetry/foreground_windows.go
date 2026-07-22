@@ -56,10 +56,13 @@ func foregroundApp(withTitle, withURL bool) (app, title, url string, err error) 
 		return "", "", "", nil
 	}
 	// Заголовок окна нужен и для title, и для эксклюзии приватных окон при чтении URL,
-	// поэтому читаем его сырым один раз, если нужен хоть один из сборов.
+	// поэтому читаем его сырым один раз, если нужен хоть один из сборов. truncated —
+	// заголовок не поместился в буфер (маркер инкогнито обычно суффикс «… (Incognito)»,
+	// и обрезка могла его срезать — тогда приватность не подтвердить).
 	var raw string
+	var truncated bool
 	if withTitle || withURL {
-		raw = windowText(hwnd)
+		raw, truncated = windowText(hwnd)
 	}
 	if withTitle {
 		// sanitizeTitle отбрасывает приватные/инкогнито-окна и режет длину (приватность).
@@ -73,21 +76,27 @@ func foregroundApp(withTitle, withURL bool) (app, title, url string, err error) 
 	if err != nil {
 		return "", title, "", err
 	}
-	// URL — только для известных браузеров и НЕ из приватных/инкогнито-окон.
-	if withURL && isBrowserProcess(name) && !isPrivateBrowsing(raw) {
+	// URL — только для известных браузеров и НЕ из приватных/инкогнито-окон. Если заголовок
+	// пришёл обрезанным, приватность по нему не подтвердить — fail-closed: URL не читаем.
+	if withURL && isBrowserProcess(name) && !truncated && !isPrivateBrowsing(raw) {
 		url = sanitizeURL(readBrowserURL(hwnd))
 	}
 	return name, title, url, nil
 }
 
-// windowText читает заголовок окна (GetWindowTextW). Пусто, если заголовка нет.
-func windowText(hwnd uintptr) string {
-	var buf [512]uint16
+// windowText читает заголовок окна (GetWindowTextW). Возвращает текст и признак обрезки
+// (заголовок длиннее буфера). Буфер большой намеренно: маркер инкогнито — суффикс, и на
+// маленьком буфере длинный document.title вытолкнул бы его за обрезку, обойдя эксклюзию.
+func windowText(hwnd uintptr) (string, bool) {
+	var buf [2048]uint16
 	n, _, _ := procGetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
 	if n == 0 {
-		return ""
+		return "", false
 	}
-	return syscall.UTF16ToString(buf[:n])
+	// GetWindowTextW возвращает не больше len-1 символов (место под NUL); равенство
+	// len-1 означает, что заголовок, вероятно, длиннее и был усечён.
+	truncated := int(n) >= len(buf)-1
+	return syscall.UTF16ToString(buf[:n]), truncated
 }
 
 // idleDuration возвращает, сколько прошло с последнего ввода (клавиатура/мышь).

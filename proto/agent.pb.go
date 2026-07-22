@@ -3163,8 +3163,9 @@ type AppUsageEntry struct {
 	// Полный URL активной вкладки браузера (напр. "https://example.com/page"), читается
 	// через UI Automation. ЕЩЁ БОЛЕЕ ЧУВСТВИТЕЛЬНО, чем заголовок окна: собирается ТОЛЬКО
 	// при ОТДЕЛЬНОМ серверном флаге capture_urls (строже capture_window_titles), только
-	// из известных браузеров (Chrome/Edge/Firefox…) и НИКОГДА из приватных/инкогнито-окон
-	// (та же эксклюзия, что и для заголовков). Иначе "".
+	// из известных браузеров (Chrome/Edge/Firefox…) и не из инкогнито-окон по best-effort-
+	// детекту приватного маркера в заголовке (та же эвристика, что у заголовков; основные
+	// локали, при обрезанном заголовке — fail-closed). Иначе "".
 	Url           string `protobuf:"bytes,5,opt,name=url,proto3" json:"url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3444,8 +3445,9 @@ type FetchTelemetryConfigResponse struct {
 	CaptureWindowTitles bool `protobuf:"varint,3,opt,name=capture_window_titles,json=captureWindowTitles,proto3" json:"capture_window_titles,omitempty"`
 	// Собирать полные URL активных вкладок браузера в app-usage. САМЫЙ строгий privacy-
 	// гейт (строже capture_window_titles): дефолт false, включает только it_admin с
-	// аудитом. Приватные/инкогнито-окна исключаются всегда, читается только из известных
-	// браузеров через UI Automation.
+	// аудитом. Приватные/инкогнито-окна исключаются по best-effort-детекту маркера в
+	// заголовке (основные локали; при обрезанном заголовке — fail-closed), читается только
+	// из известных браузеров через UI Automation.
 	CaptureUrls   bool `protobuf:"varint,4,opt,name=capture_urls,json=captureUrls,proto3" json:"capture_urls,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
