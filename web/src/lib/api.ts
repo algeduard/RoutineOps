@@ -145,6 +145,13 @@ export interface Software {
   version: string
 }
 
+// AdminSoftwareDelta — дельта инвентаря ПО за сессию админ-прав (что установлено/
+// удалено, пока действовали временные права). GET /admin-access-requests/{id}/software-delta.
+export interface AdminSoftwareDelta {
+  added: Software[]
+  removed: Software[]
+}
+
 export interface DeviceDetailResponse {
   device: Device
   software: Software[] | null

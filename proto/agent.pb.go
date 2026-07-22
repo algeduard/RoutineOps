@@ -2212,13 +2212,18 @@ func (x *FetchAdminStatusResponse) GetExpiresAt() int64 {
 // Агент → Сервер: агент сообщает фактическое применение/снятие прав
 // (напр. сброс при логауте — сервер проставит revoked_at).
 type ReportAdminAccessRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Status        AdminAccessStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=routineops.AdminAccessStatus" json:"status,omitempty"` // APPROVED (применено) / REVOKED (снято)
-	OccurredAt    int64                  `protobuf:"varint,3,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
-	Details       string                 `protobuf:"bytes,4,opt,name=details,proto3" json:"details,omitempty"` // напр. "revoked on user logout"
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	RequestId  string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Status     AdminAccessStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=routineops.AdminAccessStatus" json:"status,omitempty"` // APPROVED (применено) / REVOKED (снято)
+	OccurredAt int64                  `protobuf:"varint,3,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
+	Details    string                 `protobuf:"bytes,4,opt,name=details,proto3" json:"details,omitempty"` // напр. "revoked on user logout"
+	// Дельта инвентаря ПО за сессию админ-прав. Заполняется ТОЛЬКО на REVOKED:
+	// агент снимает снапшот ПО на выдаче прав (baseline) и на снятии, diff даёт что
+	// установлено/удалено, пока у пользователя были админ-права. Аудит JIT-доступа.
+	SoftwareAdded   []*SoftwareItem `protobuf:"bytes,5,rep,name=software_added,json=softwareAdded,proto3" json:"software_added,omitempty"`
+	SoftwareRemoved []*SoftwareItem `protobuf:"bytes,6,rep,name=software_removed,json=softwareRemoved,proto3" json:"software_removed,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ReportAdminAccessRequest) Reset() {
@@ -2277,6 +2282,20 @@ func (x *ReportAdminAccessRequest) GetDetails() string {
 		return x.Details
 	}
 	return ""
+}
+
+func (x *ReportAdminAccessRequest) GetSoftwareAdded() []*SoftwareItem {
+	if x != nil {
+		return x.SoftwareAdded
+	}
+	return nil
+}
+
+func (x *ReportAdminAccessRequest) GetSoftwareRemoved() []*SoftwareItem {
+	if x != nil {
+		return x.SoftwareRemoved
+	}
+	return nil
 }
 
 type ReportAdminAccessResponse struct {
@@ -4373,14 +4392,16 @@ const file_proto_agent_proto_rawDesc = "" +
 	"\n" +
 	"granted_at\x18\x03 \x01(\x03R\tgrantedAt\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x04 \x01(\x03R\texpiresAt\"\xab\x01\n" +
+	"expires_at\x18\x04 \x01(\x03R\texpiresAt\"\xb1\x02\n" +
 	"\x18ReportAdminAccessRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x125\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x1d.routineops.AdminAccessStatusR\x06status\x12\x1f\n" +
 	"\voccurred_at\x18\x03 \x01(\x03R\n" +
 	"occurredAt\x12\x18\n" +
-	"\adetails\x18\x04 \x01(\tR\adetails\"7\n" +
+	"\adetails\x18\x04 \x01(\tR\adetails\x12?\n" +
+	"\x0esoftware_added\x18\x05 \x03(\v2\x18.routineops.SoftwareItemR\rsoftwareAdded\x12C\n" +
+	"\x10software_removed\x18\x06 \x03(\v2\x18.routineops.SoftwareItemR\x0fsoftwareRemoved\"7\n" +
 	"\x19ReportAdminAccessResponse\x12\x1a\n" +
 	"\breceived\x18\x01 \x01(\bR\breceived\"\xdb\x02\n" +
 	"\fScriptPolicy\x12\x1b\n" +
@@ -4720,68 +4741,70 @@ var file_proto_agent_proto_depIdxs = []int32{
 	5,  // 12: routineops.RequestAdminAccessResponse.status:type_name -> routineops.AdminAccessStatus
 	5,  // 13: routineops.FetchAdminStatusResponse.status:type_name -> routineops.AdminAccessStatus
 	5,  // 14: routineops.ReportAdminAccessRequest.status:type_name -> routineops.AdminAccessStatus
-	6,  // 15: routineops.ScriptPolicy.trigger:type_name -> routineops.ScriptTrigger
-	7,  // 16: routineops.ScriptPolicy.event_trigger:type_name -> routineops.ScriptEventType
-	39, // 17: routineops.FetchScriptPoliciesResponse.policies:type_name -> routineops.ScriptPolicy
-	6,  // 18: routineops.ScriptResult.trigger:type_name -> routineops.ScriptTrigger
-	8,  // 19: routineops.EscrowRecoveryKeyRequest.key_type:type_name -> routineops.RecoveryKeyType
-	48, // 20: routineops.ResourceMetricsReport.samples:type_name -> routineops.ResourceSample
-	51, // 21: routineops.AppUsageReport.apps:type_name -> routineops.AppUsageEntry
-	52, // 22: routineops.AppUsageReport.days:type_name -> routineops.DailyActivity
-	58, // 23: routineops.RemoteDesktopClientMsg.hello:type_name -> routineops.RDHello
-	59, // 24: routineops.RemoteDesktopClientMsg.frame:type_name -> routineops.RDVideoFrame
-	60, // 25: routineops.RemoteDesktopClientMsg.status:type_name -> routineops.RDStatus
-	9,  // 26: routineops.RDVideoFrame.format:type_name -> routineops.RDImageFormat
-	10, // 27: routineops.RDStatus.code:type_name -> routineops.RDStatusCode
-	62, // 28: routineops.RemoteDesktopServerMsg.input:type_name -> routineops.RDInputEvent
-	63, // 29: routineops.RemoteDesktopServerMsg.control:type_name -> routineops.RDControl
-	11, // 30: routineops.RDInputEvent.type:type_name -> routineops.RDInputType
-	12, // 31: routineops.RDControl.action:type_name -> routineops.RDControlAction
-	13, // 32: routineops.ReportLockStatusRequest.state:type_name -> routineops.LockState
-	14, // 33: routineops.FetchLockStatusResponse.lock_mode:type_name -> routineops.LockMode
-	15, // 34: routineops.AgentService.Connect:input_type -> routineops.HeartbeatRequest
-	26, // 35: routineops.AgentService.AckTaskReceived:input_type -> routineops.TaskReceivedAck
-	18, // 36: routineops.AgentService.ReportInventory:input_type -> routineops.InventoryReport
-	24, // 37: routineops.AgentService.ReportTaskResult:input_type -> routineops.TaskResult
-	28, // 38: routineops.AgentService.ReportSecurityEvent:input_type -> routineops.SecurityEvent
-	31, // 39: routineops.AgentService.FetchPolicy:input_type -> routineops.FetchPolicyRequest
-	33, // 40: routineops.AgentService.RequestAdminAccess:input_type -> routineops.RequestAdminAccessRequest
-	35, // 41: routineops.AgentService.FetchAdminStatus:input_type -> routineops.FetchAdminStatusRequest
-	37, // 42: routineops.AgentService.ReportAdminAccess:input_type -> routineops.ReportAdminAccessRequest
-	46, // 43: routineops.AgentService.SubmitHelpRequest:input_type -> routineops.SubmitHelpRequestRequest
-	40, // 44: routineops.AgentService.FetchScriptPolicies:input_type -> routineops.FetchScriptPoliciesRequest
-	42, // 45: routineops.AgentService.ReportScriptResult:input_type -> routineops.ScriptResult
-	64, // 46: routineops.AgentService.ReportLockStatus:input_type -> routineops.ReportLockStatusRequest
-	66, // 47: routineops.AgentService.FetchLockStatus:input_type -> routineops.FetchLockStatusRequest
-	44, // 48: routineops.AgentService.EscrowRecoveryKey:input_type -> routineops.EscrowRecoveryKeyRequest
-	57, // 49: routineops.AgentService.RemoteDesktop:input_type -> routineops.RemoteDesktopClientMsg
-	49, // 50: routineops.AgentService.ReportResourceMetrics:input_type -> routineops.ResourceMetricsReport
-	53, // 51: routineops.AgentService.ReportAppUsage:input_type -> routineops.AppUsageReport
-	55, // 52: routineops.AgentService.FetchTelemetryConfig:input_type -> routineops.FetchTelemetryConfigRequest
-	20, // 53: routineops.AgentService.Connect:output_type -> routineops.Task
-	27, // 54: routineops.AgentService.AckTaskReceived:output_type -> routineops.TaskReceivedAckResponse
-	19, // 55: routineops.AgentService.ReportInventory:output_type -> routineops.InventoryAck
-	25, // 56: routineops.AgentService.ReportTaskResult:output_type -> routineops.TaskResultAck
-	29, // 57: routineops.AgentService.ReportSecurityEvent:output_type -> routineops.SecurityEventAck
-	32, // 58: routineops.AgentService.FetchPolicy:output_type -> routineops.FetchPolicyResponse
-	34, // 59: routineops.AgentService.RequestAdminAccess:output_type -> routineops.RequestAdminAccessResponse
-	36, // 60: routineops.AgentService.FetchAdminStatus:output_type -> routineops.FetchAdminStatusResponse
-	38, // 61: routineops.AgentService.ReportAdminAccess:output_type -> routineops.ReportAdminAccessResponse
-	47, // 62: routineops.AgentService.SubmitHelpRequest:output_type -> routineops.SubmitHelpRequestResponse
-	41, // 63: routineops.AgentService.FetchScriptPolicies:output_type -> routineops.FetchScriptPoliciesResponse
-	43, // 64: routineops.AgentService.ReportScriptResult:output_type -> routineops.ScriptResultAck
-	65, // 65: routineops.AgentService.ReportLockStatus:output_type -> routineops.ReportLockStatusResponse
-	67, // 66: routineops.AgentService.FetchLockStatus:output_type -> routineops.FetchLockStatusResponse
-	45, // 67: routineops.AgentService.EscrowRecoveryKey:output_type -> routineops.EscrowRecoveryKeyResponse
-	61, // 68: routineops.AgentService.RemoteDesktop:output_type -> routineops.RemoteDesktopServerMsg
-	50, // 69: routineops.AgentService.ReportResourceMetrics:output_type -> routineops.ResourceMetricsAck
-	54, // 70: routineops.AgentService.ReportAppUsage:output_type -> routineops.AppUsageAck
-	56, // 71: routineops.AgentService.FetchTelemetryConfig:output_type -> routineops.FetchTelemetryConfigResponse
-	53, // [53:72] is the sub-list for method output_type
-	34, // [34:53] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	17, // 15: routineops.ReportAdminAccessRequest.software_added:type_name -> routineops.SoftwareItem
+	17, // 16: routineops.ReportAdminAccessRequest.software_removed:type_name -> routineops.SoftwareItem
+	6,  // 17: routineops.ScriptPolicy.trigger:type_name -> routineops.ScriptTrigger
+	7,  // 18: routineops.ScriptPolicy.event_trigger:type_name -> routineops.ScriptEventType
+	39, // 19: routineops.FetchScriptPoliciesResponse.policies:type_name -> routineops.ScriptPolicy
+	6,  // 20: routineops.ScriptResult.trigger:type_name -> routineops.ScriptTrigger
+	8,  // 21: routineops.EscrowRecoveryKeyRequest.key_type:type_name -> routineops.RecoveryKeyType
+	48, // 22: routineops.ResourceMetricsReport.samples:type_name -> routineops.ResourceSample
+	51, // 23: routineops.AppUsageReport.apps:type_name -> routineops.AppUsageEntry
+	52, // 24: routineops.AppUsageReport.days:type_name -> routineops.DailyActivity
+	58, // 25: routineops.RemoteDesktopClientMsg.hello:type_name -> routineops.RDHello
+	59, // 26: routineops.RemoteDesktopClientMsg.frame:type_name -> routineops.RDVideoFrame
+	60, // 27: routineops.RemoteDesktopClientMsg.status:type_name -> routineops.RDStatus
+	9,  // 28: routineops.RDVideoFrame.format:type_name -> routineops.RDImageFormat
+	10, // 29: routineops.RDStatus.code:type_name -> routineops.RDStatusCode
+	62, // 30: routineops.RemoteDesktopServerMsg.input:type_name -> routineops.RDInputEvent
+	63, // 31: routineops.RemoteDesktopServerMsg.control:type_name -> routineops.RDControl
+	11, // 32: routineops.RDInputEvent.type:type_name -> routineops.RDInputType
+	12, // 33: routineops.RDControl.action:type_name -> routineops.RDControlAction
+	13, // 34: routineops.ReportLockStatusRequest.state:type_name -> routineops.LockState
+	14, // 35: routineops.FetchLockStatusResponse.lock_mode:type_name -> routineops.LockMode
+	15, // 36: routineops.AgentService.Connect:input_type -> routineops.HeartbeatRequest
+	26, // 37: routineops.AgentService.AckTaskReceived:input_type -> routineops.TaskReceivedAck
+	18, // 38: routineops.AgentService.ReportInventory:input_type -> routineops.InventoryReport
+	24, // 39: routineops.AgentService.ReportTaskResult:input_type -> routineops.TaskResult
+	28, // 40: routineops.AgentService.ReportSecurityEvent:input_type -> routineops.SecurityEvent
+	31, // 41: routineops.AgentService.FetchPolicy:input_type -> routineops.FetchPolicyRequest
+	33, // 42: routineops.AgentService.RequestAdminAccess:input_type -> routineops.RequestAdminAccessRequest
+	35, // 43: routineops.AgentService.FetchAdminStatus:input_type -> routineops.FetchAdminStatusRequest
+	37, // 44: routineops.AgentService.ReportAdminAccess:input_type -> routineops.ReportAdminAccessRequest
+	46, // 45: routineops.AgentService.SubmitHelpRequest:input_type -> routineops.SubmitHelpRequestRequest
+	40, // 46: routineops.AgentService.FetchScriptPolicies:input_type -> routineops.FetchScriptPoliciesRequest
+	42, // 47: routineops.AgentService.ReportScriptResult:input_type -> routineops.ScriptResult
+	64, // 48: routineops.AgentService.ReportLockStatus:input_type -> routineops.ReportLockStatusRequest
+	66, // 49: routineops.AgentService.FetchLockStatus:input_type -> routineops.FetchLockStatusRequest
+	44, // 50: routineops.AgentService.EscrowRecoveryKey:input_type -> routineops.EscrowRecoveryKeyRequest
+	57, // 51: routineops.AgentService.RemoteDesktop:input_type -> routineops.RemoteDesktopClientMsg
+	49, // 52: routineops.AgentService.ReportResourceMetrics:input_type -> routineops.ResourceMetricsReport
+	53, // 53: routineops.AgentService.ReportAppUsage:input_type -> routineops.AppUsageReport
+	55, // 54: routineops.AgentService.FetchTelemetryConfig:input_type -> routineops.FetchTelemetryConfigRequest
+	20, // 55: routineops.AgentService.Connect:output_type -> routineops.Task
+	27, // 56: routineops.AgentService.AckTaskReceived:output_type -> routineops.TaskReceivedAckResponse
+	19, // 57: routineops.AgentService.ReportInventory:output_type -> routineops.InventoryAck
+	25, // 58: routineops.AgentService.ReportTaskResult:output_type -> routineops.TaskResultAck
+	29, // 59: routineops.AgentService.ReportSecurityEvent:output_type -> routineops.SecurityEventAck
+	32, // 60: routineops.AgentService.FetchPolicy:output_type -> routineops.FetchPolicyResponse
+	34, // 61: routineops.AgentService.RequestAdminAccess:output_type -> routineops.RequestAdminAccessResponse
+	36, // 62: routineops.AgentService.FetchAdminStatus:output_type -> routineops.FetchAdminStatusResponse
+	38, // 63: routineops.AgentService.ReportAdminAccess:output_type -> routineops.ReportAdminAccessResponse
+	47, // 64: routineops.AgentService.SubmitHelpRequest:output_type -> routineops.SubmitHelpRequestResponse
+	41, // 65: routineops.AgentService.FetchScriptPolicies:output_type -> routineops.FetchScriptPoliciesResponse
+	43, // 66: routineops.AgentService.ReportScriptResult:output_type -> routineops.ScriptResultAck
+	65, // 67: routineops.AgentService.ReportLockStatus:output_type -> routineops.ReportLockStatusResponse
+	67, // 68: routineops.AgentService.FetchLockStatus:output_type -> routineops.FetchLockStatusResponse
+	45, // 69: routineops.AgentService.EscrowRecoveryKey:output_type -> routineops.EscrowRecoveryKeyResponse
+	61, // 70: routineops.AgentService.RemoteDesktop:output_type -> routineops.RemoteDesktopServerMsg
+	50, // 71: routineops.AgentService.ReportResourceMetrics:output_type -> routineops.ResourceMetricsAck
+	54, // 72: routineops.AgentService.ReportAppUsage:output_type -> routineops.AppUsageAck
+	56, // 73: routineops.AgentService.FetchTelemetryConfig:output_type -> routineops.FetchTelemetryConfigResponse
+	55, // [55:74] is the sub-list for method output_type
+	36, // [36:55] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_proto_agent_proto_init() }

@@ -315,6 +315,11 @@ message ReportAdminAccessRequest {
   AdminAccessStatus status = 2; // APPROVED (применено) / REVOKED (снято)
   int64  occurred_at = 3;
   string details = 4; // напр. "revoked on user logout"
+  // Дельта инвентаря ПО за сессию админ-прав. Заполняется ТОЛЬКО на REVOKED:
+  // агент снимает снапшот ПО на выдаче прав (baseline) и на снятии, diff даёт что
+  // установлено/удалено, пока у пользователя были админ-права. Аудит JIT-доступа.
+  repeated SoftwareItem software_added   = 5;
+  repeated SoftwareItem software_removed = 6;
 }
 message ReportAdminAccessResponse {
   bool received = 1;

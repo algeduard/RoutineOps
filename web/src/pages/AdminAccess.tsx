@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import api, { AdminAccessRequest } from "@/lib/api"
+import api, { AdminAccessRequest, AdminSoftwareDelta } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
@@ -56,6 +56,11 @@ const M = {
   reject: { ru: "Отклонить", en: "Reject" },
   revoke: { ru: "Отозвать", en: "Revoke" },
   reasonTitle: { ru: "Причина запроса", en: "Request reason" },
+  sessionChanges: { ru: "Изменения ПО за сессию", en: "Software changes during session" },
+  installed: { ru: "Установлено", en: "Installed" },
+  removed: { ru: "Удалено", en: "Removed" },
+  noChanges: { ru: "Изменений ПО не зафиксировано", en: "No software changes recorded" },
+  inProgress: { ru: "Сессия ещё активна — дельта появится после снятия прав", en: "Session still active — the delta will appear once access is revoked" },
 }
 
 const statusVariant: Record<string, "default" | "secondary" | "success" | "destructive" | "outline"> = {
@@ -80,6 +85,8 @@ export default function AdminAccess() {
   const [durationUnit, setDurationUnit] = useState<DurationUnit>("hours")
   const [submitting, setSubmitting] = useState(false)
   const [reasonReq, setReasonReq] = useState<AdminAccessRequest | null>(null)
+  const [delta, setDelta] = useState<AdminSoftwareDelta | null>(null)
+  const [deltaLoading, setDeltaLoading] = useState(false)
 
   const durationSeconds = Number(durationValue) * unitSeconds[durationUnit]
   const durationValid =
@@ -99,6 +106,20 @@ export default function AdminAccess() {
   }
 
   useEffect(() => { load() }, [])
+
+  // Дельта ПО за сессию — только у завершённых заявок (revoked/expired). Грузим при
+  // открытии диалога заявки.
+  useEffect(() => {
+    setDelta(null)
+    if (!reasonReq || (reasonReq.status !== "revoked" && reasonReq.status !== "expired")) return
+    let cancelled = false
+    setDeltaLoading(true)
+    api.get<AdminSoftwareDelta>(`/admin-access-requests/${reasonReq.id}/software-delta`)
+      .then((r) => { if (!cancelled) setDelta(r.data) })
+      .catch(() => { })
+      .finally(() => { if (!cancelled) setDeltaLoading(false) })
+    return () => { cancelled = true }
+  }, [reasonReq])
 
   async function respond(id: string, decision: "approved" | "rejected", durationSeconds?: number) {
     setSubmitting(true)
@@ -320,6 +341,43 @@ export default function AdminAccess() {
                   {reasonReq.reason}
                 </div>
               </div>
+
+              {/* Аудит JIT-доступа: дельта ПО за сессию админ-прав. Только у
+                  завершённых заявок; у активной — подсказка «сессия ещё идёт». */}
+              {(reasonReq.status === "revoked" || reasonReq.status === "expired") ? (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1.5">{t(M.sessionChanges)}</p>
+                  {deltaLoading ? (
+                    <p className="text-[13px] text-soft">{t(M.loading)}</p>
+                  ) : delta && (delta.added.length > 0 || delta.removed.length > 0) ? (
+                    <div className="space-y-2">
+                      {delta.added.length > 0 && (
+                        <div>
+                          <p className="mb-1 text-[11px] font-medium text-green-700 dark:text-green-400">{t(M.installed)} · {delta.added.length}</p>
+                          <ul className="space-y-0.5 rounded-md border border-border bg-muted px-3 py-2 text-[13px] text-soft">
+                            {delta.added.map((s, i) => <li key={`a-${i}`}>{s.name}{s.version ? ` (${s.version})` : ""}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {delta.removed.length > 0 && (
+                        <div>
+                          <p className="mb-1 text-[11px] font-medium text-red-700 dark:text-red-400">{t(M.removed)} · {delta.removed.length}</p>
+                          <ul className="space-y-0.5 rounded-md border border-border bg-muted px-3 py-2 text-[13px] text-soft">
+                            {delta.removed.map((s, i) => <li key={`r-${i}`}>{s.name}{s.version ? ` (${s.version})` : ""}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[13px] text-soft">{t(M.noChanges)}</p>
+                  )}
+                </div>
+              ) : reasonReq.status === "approved" ? (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1.5">{t(M.sessionChanges)}</p>
+                  <p className="text-[13px] text-soft">{t(M.inProgress)}</p>
+                </div>
+              ) : null}
             </div>
           )}
         </DialogContent>

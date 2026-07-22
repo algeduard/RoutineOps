@@ -548,8 +548,28 @@ func (g *Gateway) ReportAdminAccess(ctx context.Context, req *pb.ReportAdminAcce
 		g.logger.Error("report admin access", "request_id", req.RequestId, "err", err)
 		return nil, status.Errorf(codes.Unavailable, "report admin access: %v", err)
 	}
+	// Дельта инвентаря ПО за сессию админ-прав (приходит только на REVOKED). Заявка
+	// уже обновлена и проскоуплена по device_id, поэтому дельту можно привязать.
+	// Best-effort: провал сохранения дельты не рушит отчёт (грант/ревок уже применён).
+	if req.Status == pb.AdminAccessStatus_ADMIN_ACCESS_STATUS_REVOKED &&
+		(len(req.SoftwareAdded) > 0 || len(req.SoftwareRemoved) > 0) {
+		if err := g.db.SaveAdminSoftwareDelta(ctx, req.RequestId,
+			pbSoftwareToStorage(req.SoftwareAdded), pbSoftwareToStorage(req.SoftwareRemoved)); err != nil {
+			g.logger.Error("admin access: save software delta", "request_id", req.RequestId, "err", err)
+		}
+	}
+
 	g.logger.Info("admin access reported", "request_id", req.RequestId, "status", reportStatus, "details", req.Details)
 	return &pb.ReportAdminAccessResponse{Received: true}, nil
+}
+
+// pbSoftwareToStorage маппит proto-список ПО в storage-модель (для сохранения дельты).
+func pbSoftwareToStorage(items []*pb.SoftwareItem) []storage.SoftwareItem {
+	out := make([]storage.SoftwareItem, 0, len(items))
+	for _, s := range items {
+		out = append(out, storage.SoftwareItem{Name: s.GetSoftwareName(), Version: s.GetVersion()})
+	}
+	return out
 }
 
 func (g *Gateway) FetchScriptPolicies(ctx context.Context, req *pb.FetchScriptPoliciesRequest) (*pb.FetchScriptPoliciesResponse, error) {

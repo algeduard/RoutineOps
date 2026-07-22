@@ -199,6 +199,7 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 		// админские алерты. Привязка Telegram — личное действие человека.
 		r.With(requireHuman).Get("/profile/telegram", h.getTelegramStatus)
 		r.Get("/admin-access-requests", h.listAdminAccessRequests)
+		r.Get("/admin-access-requests/{id}/software-delta", h.getAdminSoftwareDelta)
 		r.Get("/help-requests", h.listHelpRequests)
 		r.Get("/help-requests/{id}/screenshot", h.getHelpRequestScreenshot)
 		r.Get("/policies", h.listPolicies)
@@ -698,6 +699,19 @@ func (h *Handler) listAdminAccessRequests(w http.ResponseWriter, r *http.Request
 		rows = []storage.AdminAccessRequestRow{}
 	}
 	writeJSON(w, http.StatusOK, rows)
+}
+
+// getAdminSoftwareDelta отдаёт дельту инвентаря ПО за сессию админ-прав заявки
+// (что установлено/удалено, пока действовали временные права) — аудит JIT-доступа.
+// Заполняется только у завершённых (revoked/expired) заявок; у активных пусто.
+func (h *Handler) getAdminSoftwareDelta(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	delta, err := h.db.GetAdminSoftwareDelta(r.Context(), id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, delta)
 }
 
 type respondAdminRequestReq struct {
