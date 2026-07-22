@@ -50,6 +50,8 @@ const M = {
   days30: { ru: "30 дней", en: "30 days" },
   captureTitlesHint: { ru: "Собирать заголовки активных окон (напр. вкладки браузера)", en: "Capture titles of active windows (e.g. browser tabs)" },
   windowTitles: { ru: "Заголовки окон", en: "Window titles" },
+  captureURLsHint: { ru: "Собирать полные URL активных вкладок браузера (через UI Automation)", en: "Capture full URLs of active browser tabs (via UI Automation)" },
+  urls: { ru: "URL сайтов", en: "URLs" },
   on: { ru: "вкл", en: "on" },
   off: { ru: "выкл", en: "off" },
   disableCollection: { ru: "Выключить сбор", en: "Disable collection" },
@@ -63,17 +65,24 @@ const M = {
     ru: "Собираются заголовки активных окон (включая вкладки браузера — грубо видно, какие сайты открыты). Заголовки могут содержать личные данные сотрудника — убедитесь, что это согласовано и сотрудник уведомлён.",
     en: "Titles of active windows are being collected (including browser tabs — roughly revealing which sites are open). Titles may contain an employee's personal data — make sure this is agreed and the employee is notified.",
   },
+  urlsWarning: {
+    ru: "Собираются полные URL активных вкладок браузера — точно видно, какие сайты и страницы открывает сотрудник (URL могут содержать личные данные и параметры в query). Приватные/инкогнито-окна исключаются. Убедитесь, что сбор согласован и сотрудник уведомлён.",
+    en: "Full URLs of active browser tabs are being collected — precisely revealing which sites and pages the employee visits (URLs may contain personal data and query parameters). Private/incognito windows are excluded. Make sure this is agreed and the employee is notified.",
+  },
   loading: { ru: "Загрузка...", en: "Loading..." },
   noDataYet: { ru: "Данные ещё не накоплены — появятся по мере работы устройства.", en: "No data collected yet — it will appear as the device is used." },
   noDataPeriod: { ru: "Нет данных за выбранный период.", en: "No data for the selected period." },
   topApps: { ru: "Топ приложений по времени на переднем плане", en: "Top apps by foreground time" },
   topWindows: { ru: "Топ окон и сайтов по времени", en: "Top windows and sites by time" },
+  topURLs: { ru: "Топ URL сайтов по времени", en: "Top site URLs by time" },
   activeTimeByDay: { ru: "Активное время за ПК по дням", en: "Active screen time by day" },
   total: { ru: "всего", en: "total" },
   toastAppOn: { ru: "Сбор аналитики приложений включён", en: "App analytics collection enabled" },
   toastAppOff: { ru: "Сбор аналитики приложений выключен", en: "App analytics collection disabled" },
   toastTitlesOn: { ru: "Сбор заголовков окон включён", en: "Window title collection enabled" },
   toastTitlesOff: { ru: "Сбор заголовков окон выключен", en: "Window title collection disabled" },
+  toastURLsOn: { ru: "Сбор URL сайтов включён", en: "URL collection enabled" },
+  toastURLsOff: { ru: "Сбор URL сайтов выключен", en: "URL collection disabled" },
   confirmEnableTitle: { ru: "Включить сбор аналитики приложений?", en: "Enable app analytics collection?" },
   confirmEnableDesc: {
     ru: "Агент начнёт собирать имена активных приложений и активное/простойное время за ПК. Это чувствительные данные о работе сотрудника; убедитесь, что сбор согласован с политикой конфиденциальности. Действие фиксируется в журнале аудита.",
@@ -85,6 +94,12 @@ const M = {
     en: "The agent will start collecting titles of active windows, including browser tabs — roughly revealing which sites and documents the employee is working in. This is ESPECIALLY sensitive data: a title may contain personal information. In many jurisdictions such collection requires prior notice to the employee. The action is recorded in the audit log.",
   },
   confirmTitlesLabel: { ru: "Включить сбор заголовков", en: "Enable title collection" },
+  confirmURLsTitle: { ru: "Собирать URL сайтов?", en: "Collect site URLs?" },
+  confirmURLsDesc: {
+    ru: "Агент начнёт собирать полные URL активных вкладок браузера (Chrome/Edge/Firefox…) через UI Automation — точно видно, какие сайты и страницы открывает сотрудник. Это НАИБОЛЕЕ чувствительные данные: URL могут содержать личную информацию и токены в query. Приватные/инкогнито-окна НЕ собираются. Во многих юрисдикциях такой сбор требует предварительного уведомления работника. Действие фиксируется в журнале аудита.",
+    en: "The agent will start collecting full URLs of active browser tabs (Chrome/Edge/Firefox…) via UI Automation — precisely revealing which sites and pages the employee visits. This is the MOST sensitive data: URLs may contain personal information and tokens in the query. Private/incognito windows are NOT collected. In many jurisdictions such collection requires prior notice to the employee. The action is recorded in the audit log.",
+  },
+  confirmURLsLabel: { ru: "Включить сбор URL", en: "Enable URL collection" },
 }
 
 // DeviceActivity — секция «Активность»: топ приложений по времени, топ окон/сайтов
@@ -99,6 +114,7 @@ export default function DeviceActivity({ deviceId, isAdmin }: { deviceId: string
   const [toggling, setToggling] = useState(false)
   const [confirmEnable, setConfirmEnable] = useState(false)
   const [confirmTitles, setConfirmTitles] = useState(false)
+  const [confirmURLs, setConfirmURLs] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -123,10 +139,10 @@ export default function DeviceActivity({ deviceId, isAdmin }: { deviceId: string
   async function setEnabled(v: boolean) {
     setToggling(true)
     try {
-      // Выключая сбор аналитики, заодно выключаем и заголовки (они его подмножество).
-      const body = v ? { app_usage_enabled: true } : { app_usage_enabled: false, capture_window_titles: false }
+      // Выключая сбор аналитики, заодно выключаем заголовки и URL (они его подмножество).
+      const body = v ? { app_usage_enabled: true } : { app_usage_enabled: false, capture_window_titles: false, capture_urls: false }
       await api.put(`/devices/${deviceId}/telemetry-config`, body)
-      setData((d) => (d ? { ...d, app_usage_enabled: v, capture_window_titles: v ? d.capture_window_titles : false } : d))
+      setData((d) => (d ? { ...d, app_usage_enabled: v, capture_window_titles: v ? d.capture_window_titles : false, capture_urls: v ? d.capture_urls : false } : d))
       toast({ title: v ? t(M.toastAppOn) : t(M.toastAppOff), variant: "success" })
     } catch {
       /* тост об ошибке покажет перехватчик api */
@@ -148,14 +164,30 @@ export default function DeviceActivity({ deviceId, isAdmin }: { deviceId: string
     }
   }
 
+  async function setURLs(v: boolean) {
+    setToggling(true)
+    try {
+      await api.put(`/devices/${deviceId}/telemetry-config`, { capture_urls: v })
+      setData((d) => (d ? { ...d, capture_urls: v } : d))
+      toast({ title: v ? t(M.toastURLsOn) : t(M.toastURLsOff), variant: "success" })
+    } catch {
+      /* тост об ошибке покажет перехватчик api */
+    } finally {
+      setToggling(false)
+    }
+  }
+
   const enabled = data?.app_usage_enabled ?? false
   const titlesEnabled = data?.capture_window_titles ?? false
+  const urlsEnabled = data?.capture_urls ?? false
   const rows = data?.apps ?? []
   const apps = aggregate(rows, (r) => r.app_name as string, 10)
   const titles = aggregate(rows, (r) => r.window_title as string, 12)
+  const urls = aggregate(rows, (r) => r.url as string, 12)
   const days = data?.days ?? []
   const maxApp = apps.length > 0 ? apps[0].seconds : 0
   const maxTitle = titles.length > 0 ? titles[0].seconds : 0
+  const maxURL = urls.length > 0 ? urls[0].seconds : 0
   const maxActive = days.reduce((mx, d) => Math.max(mx, d.active_seconds), 0)
   const totalActive = days.reduce((sum, d) => sum + d.active_seconds, 0)
   const hasData = apps.length > 0 || days.length > 0
@@ -179,8 +211,18 @@ export default function DeviceActivity({ deviceId, isAdmin }: { deviceId: string
                   onClick={() => (titlesEnabled ? setTitles(false) : setConfirmTitles(true))}
                   title={t(M.captureTitlesHint)}
                 >
-                  <Globe className="mr-1 h-3.5 w-3.5" />
+                  <AppWindow className="mr-1 h-3.5 w-3.5" />
                   {t(M.windowTitles)}: {titlesEnabled ? t(M.on) : t(M.off)}
+                </Button>
+                <Button
+                  variant={urlsEnabled ? "default" : "outline"}
+                  size="sm"
+                  disabled={toggling}
+                  onClick={() => (urlsEnabled ? setURLs(false) : setConfirmURLs(true))}
+                  title={t(M.captureURLsHint)}
+                >
+                  <Globe className="mr-1 h-3.5 w-3.5" />
+                  {t(M.urls)}: {urlsEnabled ? t(M.on) : t(M.off)}
                 </Button>
                 <Button variant="outline" size="sm" disabled={toggling} onClick={() => setEnabled(false)}>
                   {t(M.disableCollection)}
@@ -204,6 +246,11 @@ export default function DeviceActivity({ deviceId, isAdmin }: { deviceId: string
       {enabled && titlesEnabled && (
         <p className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
           {t(M.titlesWarning)}
+        </p>
+      )}
+      {enabled && urlsEnabled && (
+        <p className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+          {t(M.urlsWarning)}
         </p>
       )}
 
@@ -232,6 +279,17 @@ export default function DeviceActivity({ deviceId, isAdmin }: { deviceId: string
               <div className="flex flex-col gap-2">
                 {titles.map((t) => (
                   <HBar key={t.key} label={t.key} value={t.seconds} max={maxTitle} valueLabel={fmtDuration(t.seconds)} color="#8b5cf6" />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {urls.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">{t(M.topURLs)}</p>
+              <div className="flex flex-col gap-2">
+                {urls.map((u) => (
+                  <HBar key={u.key} label={u.key} value={u.seconds} max={maxURL} valueLabel={fmtDuration(u.seconds)} color="#ef4444" />
                 ))}
               </div>
             </div>
@@ -267,6 +325,14 @@ export default function DeviceActivity({ deviceId, isAdmin }: { deviceId: string
         description={t(M.confirmTitlesDesc)}
         confirmLabel={t(M.confirmTitlesLabel)}
         onConfirm={() => setTitles(true)}
+      />
+      <ConfirmDialog
+        open={confirmURLs}
+        onOpenChange={setConfirmURLs}
+        title={t(M.confirmURLsTitle)}
+        description={t(M.confirmURLsDesc)}
+        confirmLabel={t(M.confirmURLsLabel)}
+        onConfirm={() => setURLs(true)}
       />
     </div>
   )

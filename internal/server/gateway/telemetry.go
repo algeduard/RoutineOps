@@ -98,6 +98,13 @@ func (g *Gateway) ReportAppUsage(ctx context.Context, req *pb.AppUsageReport) (*
 		g.logger.Error("app usage: check title flag", "device_id", deviceID, "err", err)
 		return nil, status.Errorf(codes.Unavailable, "check title flag: %v", err)
 	}
+	// Серверный гейт URL (defense-in-depth): даже если агент прислал URL, при
+	// выключенном capture_urls обнуляем их — не сохраняем.
+	captureURLs, err := g.db.GetCaptureURLsByFingerprint(ctx, fingerprint)
+	if err != nil {
+		g.logger.Error("app usage: check url flag", "device_id", deviceID, "err", err)
+		return nil, status.Errorf(codes.Unavailable, "check url flag: %v", err)
+	}
 
 	apps := make([]storage.AppUsageInput, 0, len(req.Apps))
 	for _, a := range req.Apps {
@@ -105,7 +112,11 @@ func (g *Gateway) ReportAppUsage(ctx context.Context, req *pb.AppUsageReport) (*
 		if captureTitles {
 			title = a.WindowTitle
 		}
-		apps = append(apps, storage.AppUsageInput{Day: a.Day, AppName: a.AppName, WindowTitle: title, ForegroundSeconds: a.ForegroundSeconds})
+		url := ""
+		if captureURLs {
+			url = a.Url
+		}
+		apps = append(apps, storage.AppUsageInput{Day: a.Day, AppName: a.AppName, WindowTitle: title, URL: url, ForegroundSeconds: a.ForegroundSeconds})
 	}
 	days := make([]storage.DailyActivityInput, 0, len(req.Days))
 	for _, d := range req.Days {
@@ -149,8 +160,13 @@ func (g *Gateway) FetchTelemetryConfig(ctx context.Context, _ *pb.FetchTelemetry
 		g.logger.Error("fetch telemetry config: title flag", "err", err)
 		return nil, status.Errorf(codes.Internal, "fetch telemetry config: %v", err)
 	}
+	captureURLs, err := g.db.GetCaptureURLsByFingerprint(ctx, fingerprint)
+	if err != nil {
+		g.logger.Error("fetch telemetry config: url flag", "err", err)
+		return nil, status.Errorf(codes.Internal, "fetch telemetry config: %v", err)
+	}
 	// metrics_sample_seconds=0 → агент использует свой дефолт (серверный оверрайд не задаём).
-	return &pb.FetchTelemetryConfigResponse{AppUsageEnabled: enabled, CaptureWindowTitles: captureTitles}, nil
+	return &pb.FetchTelemetryConfigResponse{AppUsageEnabled: enabled, CaptureWindowTitles: captureTitles, CaptureUrls: captureURLs}, nil
 }
 
 // clampSampleTime защищает ts метрик от нулевых/будущих/слишком старых значений

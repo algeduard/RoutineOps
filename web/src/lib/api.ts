@@ -387,11 +387,13 @@ export interface ResourceMetric {
 }
 
 // AppUsageRow — использование приложения за день (агрегат). window_title непусто
-// только когда включён сбор заголовков окон (capture_window_titles).
+// только когда включён сбор заголовков окон (capture_window_titles); url непусто
+// только когда включён сбор URL (capture_urls) — читается из браузеров через UIA.
 export interface AppUsageRow {
   day: string
   app_name: string
   window_title: string
+  url: string
   foreground_seconds: number
 }
 
@@ -408,6 +410,7 @@ export interface DailyActivityRow {
 export interface AppUsageResponse {
   app_usage_enabled: boolean
   capture_window_titles: boolean
+  capture_urls: boolean
   apps: AppUsageRow[]
   days: DailyActivityRow[]
 }
@@ -416,6 +419,7 @@ export interface AppUsageResponse {
 export interface TelemetryConfig {
   app_usage_enabled: boolean
   capture_window_titles: boolean
+  capture_urls: boolean
 }
 
 // LicenseStatus — снимок энтайтлмента (GET/POST /license, только enterprise-сборка;

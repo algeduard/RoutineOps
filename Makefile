@@ -64,10 +64,11 @@ help: ## Список целей
 fmt: ## Отформатировать весь Go-код (gofmt). Прогоняйте перед пушем — это гейт CI.
 	gofmt -w .
 
-proto: ## Перегенерировать Go-код из proto (ОБЩИЙ файл — менять согласованно, ADR-4)
-	protoc --go_out=. --go_opt=paths=source_relative \
-	       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-	       proto/agent.proto
+proto: ## Перегенерировать Go-код из proto через buf (ОБЩИЙ файл — менять согласованно, ADR-4)
+	# Шаблон плагинов — buf.gen.yaml; --config оверрайдит module root на КОРЕНЬ репо
+	# (иначе source_relative положит файлы в корень и source:-коммент станет agent.proto).
+	# buf.yaml (module=proto) остаётся для `buf breaking` — его не трогаем.
+	buf generate --config '{"version":"v2","modules":[{"path":"."}]}'
 
 tidy: ## Привести go.mod/go.sum в порядок (добавит pgx и пр.)
 	go mod tidy

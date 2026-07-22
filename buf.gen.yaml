@@ -1,0 +1,23 @@
+# Кодоген Go из proto-контракта через buf (замена protoc-таргету `make proto`).
+#
+# ВАЖНО про module root: buf.yaml объявляет модуль в `proto/` — это нужно ГЕЙТУ
+# СОВМЕСТИМОСТИ (`buf breaking`, файл сравнивается как `agent.proto`). Но кодоген с
+# paths=source_relative обязан рутить модуль в КОРНЕ репозитория, иначе файлы лягут в
+# корень и `source:`-комментарий станет `agent.proto` вместо `proto/agent.proto`.
+# Поэтому генерируем с ОВЕРРАЙДОМ конфига на инлайн-модуль `.` (buf.yaml не трогаем):
+#
+#   buf generate --config '{"version":"v2","modules":[{"path":"."}]}'
+#
+# (см. Makefile-таргет `proto`). Результат — proto/agent.pb.go и proto/agent_grpc.pb.go
+# рядом с proto/agent.proto, с `// source: proto/agent.proto`.
+#
+# Изменения контракта — ТОЛЬКО аддитивные (ADR-4, см. proto/agent.proto); после правки
+# .proto перегенерировать этим шаблоном и прогнать `buf breaking` против main.
+version: v2
+plugins:
+  - local: protoc-gen-go
+    out: .
+    opt: paths=source_relative
+  - local: protoc-gen-go-grpc
+    out: .
+    opt: paths=source_relative

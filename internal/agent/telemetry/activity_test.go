@@ -38,11 +38,11 @@ func TestActivityAggregator_AccumulatesActiveAndIdle(t *testing.T) {
 	a := newActivityAggregator()
 
 	// Активный ввод: время идёт в активное И в счётчик foreground-приложения.
-	a.record("2026-07-21", "chrome.exe", "", true, 30)
-	a.record("2026-07-21", "chrome.exe", "", true, 30)
-	a.record("2026-07-21", "code.exe", "", true, 15)
+	a.record("2026-07-21", "chrome.exe", "", "", true, 30)
+	a.record("2026-07-21", "chrome.exe", "", "", true, 30)
+	a.record("2026-07-21", "code.exe", "", "", true, 15)
 	// Простой: время идёт в idle, приложению НЕ приписывается.
-	a.record("2026-07-21", "chrome.exe", "", false, 40)
+	a.record("2026-07-21", "chrome.exe", "", "", false, 40)
 
 	apps, days := a.drain()
 
@@ -64,7 +64,7 @@ func TestActivityAggregator_AccumulatesActiveAndIdle(t *testing.T) {
 func TestActivityAggregator_IdleNotAttributedToApp(t *testing.T) {
 	a := newActivityAggregator()
 	// Простой при известном foreground-окне НЕ должен копить время приложению.
-	a.record("2026-07-21", "chrome.exe", "", false, 100)
+	a.record("2026-07-21", "chrome.exe", "", "", false, 100)
 	apps, days := a.drain()
 	if len(apps) != 0 {
 		t.Errorf("простойное время приписано приложению: %+v", apps)
@@ -77,7 +77,7 @@ func TestActivityAggregator_IdleNotAttributedToApp(t *testing.T) {
 
 func TestActivityAggregator_DrainResets(t *testing.T) {
 	a := newActivityAggregator()
-	a.record("2026-07-21", "chrome.exe", "", true, 30)
+	a.record("2026-07-21", "chrome.exe", "", "", true, 30)
 	a.drain()
 	if !a.empty() {
 		t.Fatal("после drain аккумулятор должен быть пуст")
@@ -90,11 +90,11 @@ func TestActivityAggregator_DrainResets(t *testing.T) {
 
 func TestActivityAggregator_RestoreMergesWithNew(t *testing.T) {
 	a := newActivityAggregator()
-	a.record("2026-07-21", "chrome.exe", "", true, 30)
+	a.record("2026-07-21", "chrome.exe", "", "", true, 30)
 	apps, days := a.drain() // имитируем отправку
 
 	// Между drain и restore пришёл новый сэмпл (отправка была в полёте).
-	a.record("2026-07-21", "chrome.exe", "", true, 10)
+	a.record("2026-07-21", "chrome.exe", "", "", true, 10)
 	// Отправка не удалась — возвращаем дельты; они должны СЛОЖИТЬСЯ с новыми.
 	a.restore(apps, days)
 
@@ -109,7 +109,7 @@ func TestActivityAggregator_RestoreMergesWithNew(t *testing.T) {
 
 func TestActivityAggregator_ResetDropsEverything(t *testing.T) {
 	a := newActivityAggregator()
-	a.record("2026-07-21", "chrome.exe", "", true, 30)
+	a.record("2026-07-21", "chrome.exe", "", "", true, 30)
 	a.reset() // сбор выключен — накопленное до отключения не должно утечь
 	if !a.empty() {
 		t.Fatal("после reset аккумулятор должен быть пуст")
@@ -118,9 +118,9 @@ func TestActivityAggregator_ResetDropsEverything(t *testing.T) {
 
 func TestActivityAggregator_IgnoresNonPositiveAndEmptyDay(t *testing.T) {
 	a := newActivityAggregator()
-	a.record("2026-07-21", "chrome.exe", "", true, 0)  // нулевая дельта
-	a.record("2026-07-21", "chrome.exe", "", true, -5) // отрицательная
-	a.record("", "chrome.exe", "", true, 30)           // пустой день
+	a.record("2026-07-21", "chrome.exe", "", "", true, 0)  // нулевая дельта
+	a.record("2026-07-21", "chrome.exe", "", "", true, -5) // отрицательная
+	a.record("", "chrome.exe", "", "", true, 30)           // пустой день
 	if !a.empty() {
 		t.Fatalf("аккумулятор должен игнорировать невалидные записи, но не пуст")
 	}
@@ -130,9 +130,9 @@ func TestActivityAggregator_IgnoresNonPositiveAndEmptyDay(t *testing.T) {
 // вкладки браузера) копится раздельно, а одинаковые заголовки суммируются.
 func TestActivityAggregator_WindowTitleIsPartOfKey(t *testing.T) {
 	a := newActivityAggregator()
-	a.record("2026-07-21", "chrome.exe", "Хабр — Google Chrome", true, 30)
-	a.record("2026-07-21", "chrome.exe", "Хабр — Google Chrome", true, 20)
-	a.record("2026-07-21", "chrome.exe", "YouTube — Google Chrome", true, 15)
+	a.record("2026-07-21", "chrome.exe", "Хабр — Google Chrome", "", true, 30)
+	a.record("2026-07-21", "chrome.exe", "Хабр — Google Chrome", "", true, 20)
+	a.record("2026-07-21", "chrome.exe", "YouTube — Google Chrome", "", true, 15)
 
 	apps, _ := a.drain()
 	if got := titleSeconds(apps, "2026-07-21", "chrome.exe", "Хабр — Google Chrome"); got != 50 {
@@ -140,5 +140,31 @@ func TestActivityAggregator_WindowTitleIsPartOfKey(t *testing.T) {
 	}
 	if got := titleSeconds(apps, "2026-07-21", "chrome.exe", "YouTube — Google Chrome"); got != 15 {
 		t.Errorf("YouTube = %d, want 15", got)
+	}
+}
+
+func urlSeconds(apps []*pb.AppUsageEntry, day, app, url string) int64 {
+	for _, e := range apps {
+		if e.Day == day && e.AppName == app && e.Url == url {
+			return e.ForegroundSeconds
+		}
+	}
+	return -1
+}
+
+// URL — часть ключа: разные URL одного процесса копятся раздельно, одинаковые
+// суммируются (как и window_title).
+func TestActivityAggregator_URLIsPartOfKey(t *testing.T) {
+	a := newActivityAggregator()
+	a.record("2026-07-21", "chrome.exe", "", "https://example.com", true, 30)
+	a.record("2026-07-21", "chrome.exe", "", "https://example.com", true, 20)
+	a.record("2026-07-21", "chrome.exe", "", "https://other.org", true, 15)
+
+	apps, _ := a.drain()
+	if got := urlSeconds(apps, "2026-07-21", "chrome.exe", "https://example.com"); got != 50 {
+		t.Errorf("example.com = %d, want 50", got)
+	}
+	if got := urlSeconds(apps, "2026-07-21", "chrome.exe", "https://other.org"); got != 15 {
+		t.Errorf("other.org = %d, want 15", got)
 	}
 }

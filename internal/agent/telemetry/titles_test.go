@@ -46,3 +46,34 @@ func TestSanitizeTitle(t *testing.T) {
 		t.Errorf("длина после обрезки = %d, want %d", n, maxTitleLen)
 	}
 }
+
+func TestIsBrowserProcess(t *testing.T) {
+	browsers := []string{"chrome.exe", "MSEDGE.EXE", "  firefox.exe ", "Brave.exe", "browser.exe"}
+	for _, s := range browsers {
+		if !isBrowserProcess(s) {
+			t.Errorf("ожидали браузер для %q", s)
+		}
+	}
+	notBrowsers := []string{"code.exe", "explorer.exe", "notepad.exe", ""}
+	for _, s := range notBrowsers {
+		if isBrowserProcess(s) {
+			t.Errorf("НЕ ожидали браузер для %q", s)
+		}
+	}
+}
+
+func TestSanitizeURL(t *testing.T) {
+	// Обычный URL — тримится, по сути не меняется.
+	if got := sanitizeURL("  https://example.com/page?x=1  "); got != "https://example.com/page?x=1" {
+		t.Errorf("sanitizeURL обычного = %q", got)
+	}
+	// Пусто → пусто.
+	if got := sanitizeURL("   "); got != "" {
+		t.Errorf("пустой URL должен давать пусто, got %q", got)
+	}
+	// Слишком длинный URL обрезается до maxURLLen рун.
+	long := "https://example.com/" + strings.Repeat("a", maxURLLen+50)
+	if n := len([]rune(sanitizeURL(long))); n != maxURLLen {
+		t.Errorf("длина URL после обрезки = %d, want %d", n, maxURLLen)
+	}
+}

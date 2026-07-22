@@ -498,6 +498,12 @@ message AppUsageEntry {
   // пользователь/на каком сайте. ЧУВСТВИТЕЛЬНО: собирается ТОЛЬКО при отдельном
   // серверном флаге capture_window_titles (отдельно от app_usage_enabled), иначе "".
   string window_title       = 4;
+  // Полный URL активной вкладки браузера (напр. "https://example.com/page"), читается
+  // через UI Automation. ЕЩЁ БОЛЕЕ ЧУВСТВИТЕЛЬНО, чем заголовок окна: собирается ТОЛЬКО
+  // при ОТДЕЛЬНОМ серверном флаге capture_urls (строже capture_window_titles), только
+  // из известных браузеров (Chrome/Edge/Firefox…) и НИКОГДА из приватных/инкогнито-окон
+  // (та же эксклюзия, что и для заголовков). Иначе "".
+  string url                = 5;
 }
 
 // Активное/простойное время за день (ДЕЛЬТА с прошлой отправки).
@@ -529,6 +535,11 @@ message FetchTelemetryConfigResponse {
   // Собирать заголовки активных окон (напр. вкладки браузера) в app-usage. ОТДЕЛЬНЫЙ
   // privacy-гейт (строже app_usage_enabled): дефолт false, включает только it_admin.
   bool  capture_window_titles = 3;
+  // Собирать полные URL активных вкладок браузера в app-usage. САМЫЙ строгий privacy-
+  // гейт (строже capture_window_titles): дефолт false, включает только it_admin с
+  // аудитом. Приватные/инкогнито-окна исключаются всегда, читается только из известных
+  // браузеров через UI Automation.
+  bool  capture_urls          = 4;
 }
 
 service AgentService {

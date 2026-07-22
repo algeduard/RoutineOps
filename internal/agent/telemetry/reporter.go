@@ -47,12 +47,15 @@ type Reporter struct {
 	// serverCaptureTitles — серверный флаг capture_window_titles (configLoop): собирать
 	// ли заголовки активных окон. Отдельный, более строгий privacy-гейт.
 	serverCaptureTitles atomic.Bool
+	// serverCaptureURLs — серверный флаг capture_urls (configLoop): собирать ли URL
+	// активных вкладок браузера. Самый строгий privacy-гейт (строже заголовков).
+	serverCaptureURLs atomic.Bool
 
 	// Тест-швы: продакшн-значения проставляются в Run.
 	sendMetrics   func(ctx context.Context, r *pb.ResourceMetricsReport) error
 	sendAppUsage  func(ctx context.Context, r *pb.AppUsageReport) error
 	fetchConfig   func(ctx context.Context) (*pb.FetchTelemetryConfigResponse, error)
-	foregroundApp func(withTitle bool) (app, title string, err error)
+	foregroundApp func(withTitle, withURL bool) (app, title, url string, err error)
 	idleDuration  func() (time.Duration, error)
 	now           func() time.Time
 }
@@ -186,7 +189,7 @@ func (r *Reporter) activityLoop(ctx context.Context) {
 			if elapsed > maxElapsed {
 				elapsed = int64(r.SampleInterval.Seconds())
 			}
-			app, title, err := r.foregroundApp(r.serverCaptureTitles.Load())
+			app, title, url, err := r.foregroundApp(r.serverCaptureTitles.Load(), r.serverCaptureURLs.Load())
 			if err != nil {
 				r.Log.Debug("telemetry: foreground-приложение", slog.Any("error", err))
 			}
@@ -195,7 +198,7 @@ func (r *Reporter) activityLoop(ctx context.Context) {
 				r.Log.Debug("telemetry: idle-время", slog.Any("error", err))
 			}
 			active := idle < r.IdleThreshold
-			agg.record(n.Format("2006-01-02"), app, title, active, elapsed)
+			agg.record(n.Format("2006-01-02"), app, title, url, active, elapsed)
 		case <-reportT.C:
 			if !r.serverAppUsage.Load() || agg.empty() {
 				continue
@@ -227,6 +230,10 @@ func (r *Reporter) configLoop(ctx context.Context) {
 		if r.serverCaptureTitles.Swap(cfg.GetCaptureWindowTitles()) != cfg.GetCaptureWindowTitles() {
 			r.Log.Info("telemetry: серверный флаг capture_window_titles изменён",
 				slog.Bool("enabled", cfg.GetCaptureWindowTitles()))
+		}
+		if r.serverCaptureURLs.Swap(cfg.GetCaptureUrls()) != cfg.GetCaptureUrls() {
+			r.Log.Info("telemetry: серверный флаг capture_urls изменён",
+				slog.Bool("enabled", cfg.GetCaptureUrls()))
 		}
 	}
 	poll()

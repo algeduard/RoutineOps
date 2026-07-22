@@ -36,32 +36,48 @@ type lastInputInfo struct {
 func appUsageSupported() bool { return true }
 
 // foregroundApp возвращает имя процесса активного (foreground) окна и, при
-// withTitle, заголовок этого окна. Пусто, если активного окна нет (напр. экран
-// блокировки/рабочий стол без фокуса). Заголовок читается ТОЛЬКО при withTitle —
-// когда it_admin включил capture_window_titles (иначе он не попадает даже в память).
-func foregroundApp(withTitle bool) (app, title string, err error) {
+// withTitle/withURL, заголовок окна и URL активной вкладки браузера. Пусто, если
+// активного окна нет (напр. экран блокировки/рабочий стол без фокуса). Заголовок
+// читается ТОЛЬКО при withTitle (capture_window_titles), URL — ТОЛЬКО при withURL
+// (capture_urls) — иначе не попадают даже в память.
+//
+// URL собирается ЛИШЬ из известных браузеров (isBrowserProcess) и НИКОГДА из
+// приватных/инкогнито-окон — та же эксклюзия по заголовку (isPrivateBrowsing), что и
+// для window_title. Чтение URL best-effort: его ошибка/пустота не влияет на имя
+// процесса и заголовок.
+func foregroundApp(withTitle, withURL bool) (app, title, url string, err error) {
 	hwnd, _, _ := procGetForegroundWindow.Call()
 	if hwnd == 0 {
-		return "", "", nil
+		return "", "", "", nil
 	}
 	var pid uint32
 	procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
 	if pid == 0 {
-		return "", "", nil
+		return "", "", "", nil
+	}
+	// Заголовок окна нужен и для title, и для эксклюзии приватных окон при чтении URL,
+	// поэтому читаем его сырым один раз, если нужен хоть один из сборов.
+	var raw string
+	if withTitle || withURL {
+		raw = windowText(hwnd)
 	}
 	if withTitle {
 		// sanitizeTitle отбрасывает приватные/инкогнито-окна и режет длину (приватность).
-		title = sanitizeTitle(windowText(hwnd))
+		title = sanitizeTitle(raw)
 	}
 	p, err := process.NewProcess(int32(pid))
 	if err != nil {
-		return "", title, err
+		return "", title, "", err
 	}
 	name, err := p.Name()
 	if err != nil {
-		return "", title, err
+		return "", title, "", err
 	}
-	return name, title, nil
+	// URL — только для известных браузеров и НЕ из приватных/инкогнито-окон.
+	if withURL && isBrowserProcess(name) && !isPrivateBrowsing(raw) {
+		url = sanitizeURL(readBrowserURL(hwnd))
+	}
+	return name, title, url, nil
 }
 
 // windowText читает заголовок окна (GetWindowTextW). Пусто, если заголовка нет.

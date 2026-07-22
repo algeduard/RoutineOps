@@ -3145,7 +3145,13 @@ type AppUsageEntry struct {
 	// Заголовок активного окна (напр. вкладка браузера) — грубо показывает, ЧЕМ занят
 	// пользователь/на каком сайте. ЧУВСТВИТЕЛЬНО: собирается ТОЛЬКО при отдельном
 	// серверном флаге capture_window_titles (отдельно от app_usage_enabled), иначе "".
-	WindowTitle   string `protobuf:"bytes,4,opt,name=window_title,json=windowTitle,proto3" json:"window_title,omitempty"`
+	WindowTitle string `protobuf:"bytes,4,opt,name=window_title,json=windowTitle,proto3" json:"window_title,omitempty"`
+	// Полный URL активной вкладки браузера (напр. "https://example.com/page"), читается
+	// через UI Automation. ЕЩЁ БОЛЕЕ ЧУВСТВИТЕЛЬНО, чем заголовок окна: собирается ТОЛЬКО
+	// при ОТДЕЛЬНОМ серверном флаге capture_urls (строже capture_window_titles), только
+	// из известных браузеров (Chrome/Edge/Firefox…) и НИКОГДА из приватных/инкогнито-окон
+	// (та же эксклюзия, что и для заголовков). Иначе "".
+	Url           string `protobuf:"bytes,5,opt,name=url,proto3" json:"url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3204,6 +3210,13 @@ func (x *AppUsageEntry) GetForegroundSeconds() int64 {
 func (x *AppUsageEntry) GetWindowTitle() string {
 	if x != nil {
 		return x.WindowTitle
+	}
+	return ""
+}
+
+func (x *AppUsageEntry) GetUrl() string {
+	if x != nil {
+		return x.Url
 	}
 	return ""
 }
@@ -3415,8 +3428,13 @@ type FetchTelemetryConfigResponse struct {
 	// Собирать заголовки активных окон (напр. вкладки браузера) в app-usage. ОТДЕЛЬНЫЙ
 	// privacy-гейт (строже app_usage_enabled): дефолт false, включает только it_admin.
 	CaptureWindowTitles bool `protobuf:"varint,3,opt,name=capture_window_titles,json=captureWindowTitles,proto3" json:"capture_window_titles,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Собирать полные URL активных вкладок браузера в app-usage. САМЫЙ строгий privacy-
+	// гейт (строже capture_window_titles): дефолт false, включает только it_admin с
+	// аудитом. Приватные/инкогнито-окна исключаются всегда, читается только из известных
+	// браузеров через UI Automation.
+	CaptureUrls   bool `protobuf:"varint,4,opt,name=capture_urls,json=captureUrls,proto3" json:"capture_urls,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FetchTelemetryConfigResponse) Reset() {
@@ -3466,6 +3484,13 @@ func (x *FetchTelemetryConfigResponse) GetMetricsSampleSeconds() int64 {
 func (x *FetchTelemetryConfigResponse) GetCaptureWindowTitles() bool {
 	if x != nil {
 		return x.CaptureWindowTitles
+	}
+	return false
+}
+
+func (x *FetchTelemetryConfigResponse) GetCaptureUrls() bool {
+	if x != nil {
+		return x.CaptureUrls
 	}
 	return false
 }
@@ -4467,12 +4492,13 @@ const file_proto_agent_proto_rawDesc = "" +
 	"\x15ResourceMetricsReport\x124\n" +
 	"\asamples\x18\x01 \x03(\v2\x1a.routineops.ResourceSampleR\asamples\"0\n" +
 	"\x12ResourceMetricsAck\x12\x1a\n" +
-	"\breceived\x18\x01 \x01(\bR\breceived\"\x8e\x01\n" +
+	"\breceived\x18\x01 \x01(\bR\breceived\"\xa0\x01\n" +
 	"\rAppUsageEntry\x12\x10\n" +
 	"\x03day\x18\x01 \x01(\tR\x03day\x12\x19\n" +
 	"\bapp_name\x18\x02 \x01(\tR\aappName\x12-\n" +
 	"\x12foreground_seconds\x18\x03 \x01(\x03R\x11foregroundSeconds\x12!\n" +
-	"\fwindow_title\x18\x04 \x01(\tR\vwindowTitle\"k\n" +
+	"\fwindow_title\x18\x04 \x01(\tR\vwindowTitle\x12\x10\n" +
+	"\x03url\x18\x05 \x01(\tR\x03url\"k\n" +
 	"\rDailyActivity\x12\x10\n" +
 	"\x03day\x18\x01 \x01(\tR\x03day\x12%\n" +
 	"\x0eactive_seconds\x18\x02 \x01(\x03R\ractiveSeconds\x12!\n" +
@@ -4482,11 +4508,12 @@ const file_proto_agent_proto_rawDesc = "" +
 	"\x04days\x18\x02 \x03(\v2\x19.routineops.DailyActivityR\x04days\")\n" +
 	"\vAppUsageAck\x12\x1a\n" +
 	"\breceived\x18\x01 \x01(\bR\breceived\"\x1d\n" +
-	"\x1bFetchTelemetryConfigRequest\"\xb4\x01\n" +
+	"\x1bFetchTelemetryConfigRequest\"\xd7\x01\n" +
 	"\x1cFetchTelemetryConfigResponse\x12*\n" +
 	"\x11app_usage_enabled\x18\x01 \x01(\bR\x0fappUsageEnabled\x124\n" +
 	"\x16metrics_sample_seconds\x18\x02 \x01(\x03R\x14metricsSampleSeconds\x122\n" +
-	"\x15capture_window_titles\x18\x03 \x01(\bR\x13captureWindowTitles\"\xb2\x01\n" +
+	"\x15capture_window_titles\x18\x03 \x01(\bR\x13captureWindowTitles\x12!\n" +
+	"\fcapture_urls\x18\x04 \x01(\bR\vcaptureUrls\"\xb2\x01\n" +
 	"\x16RemoteDesktopClientMsg\x12+\n" +
 	"\x05hello\x18\x01 \x01(\v2\x13.routineops.RDHelloH\x00R\x05hello\x120\n" +
 	"\x05frame\x18\x02 \x01(\v2\x18.routineops.RDVideoFrameH\x00R\x05frame\x12.\n" +
