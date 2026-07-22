@@ -52,6 +52,7 @@ const ACTION_LABELS: Record<string, Msg> = {
   remote_desktop_start:  { ru: "начал удалённый сеанс", en: "started a remote session" },
   remote_desktop_end:    { ru: "завершил удалённый сеанс", en: "ended a remote session" },
   set_telemetry_config:  { ru: "изменил конфиг телеметрии", en: "changed telemetry config" },
+  set_update_channel:    { ru: "сменил канал обновления", en: "changed the update channel" },
   create_script:         { ru: "создал скрипт", en: "created a script" },
   update_script:         { ru: "изменил скрипт", en: "updated a script" },
   delete_script:         { ru: "удалил скрипт", en: "deleted a script" },
