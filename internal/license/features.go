@@ -14,4 +14,6 @@ const (
 	FeatureAuditIntegrity = "audit_integrity"
 	// FeatureSSO — вход через внешний OIDC-провайдер (SSO).
 	FeatureSSO = "sso"
+	// FeatureCompliance — compliance-дашборды и отчёты (CIS/SOC2-скоринг по существующим данным).
+	FeatureCompliance = "compliance"
 )

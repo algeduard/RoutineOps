@@ -204,6 +204,28 @@ export interface Capabilities {
   siem_export: boolean
   audit_integrity: boolean
   sso: boolean
+  compliance: boolean
+}
+
+// ComplianceCheck — одна проверка соответствия в отчёте (GET /compliance/report,
+// enterprise). status: pass/warn/fail поверх доли passed/total; detail — пояснение с
+// числами. category: CIS / SOC2 / access / inventory / audit.
+export interface ComplianceCheck {
+  id: string
+  title: string
+  category: string
+  status: "pass" | "warn" | "fail"
+  passed: number
+  total: number
+  detail: string
+}
+
+// ComplianceReport — общий compliance-скор (0..100) + набор проверок (GET
+// /compliance/report). Агрегирует уже существующие данные, новых от агента не требует.
+export interface ComplianceReport {
+  score: number
+  generated_at: string
+  checks: ComplianceCheck[]
 }
 
 // AuditIntegrity — результат проверки целостности журнала аудита (GET /audit-log/verify,

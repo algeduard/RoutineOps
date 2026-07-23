@@ -75,6 +75,8 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 		api.WithAdminRoutes(api.SIEMConfigRoutes(mgr)),
 		// Проверка целостности журнала аудита (tamper-evidence).
 		api.WithAdminRoutes(api.AuditIntegrityRoutes(mgr)),
+		// Compliance-дашборды и отчёты (скоринг по существующим данным).
+		api.WithAdminRoutes(api.ComplianceRoutes(mgr)),
 		// /capabilities — какие enterprise-фичи активны (веб гейтит по ним UI). Все роли.
 		api.WithRoutes(api.CapabilitiesRoutes(mgr)),
 	}

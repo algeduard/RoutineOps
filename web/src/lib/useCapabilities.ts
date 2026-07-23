@@ -6,7 +6,7 @@ import api, { Capabilities } from "@/lib/api"
 // только при смене лицензии (тогда достаточно перезагрузить страницу).
 let cached: Capabilities | null = null
 
-const EMPTY: Capabilities = { software_removal: false, siem_export: false, audit_integrity: false, sso: false }
+const EMPTY: Capabilities = { software_removal: false, siem_export: false, audit_integrity: false, sso: false, compliance: false }
 
 export function useCapabilities() {
   const [caps, setCaps] = useState<Capabilities>(cached ?? EMPTY)
