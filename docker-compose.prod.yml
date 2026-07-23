@@ -95,6 +95,32 @@ services:
       timeout: 5s
       retries: 5
 
+  # Авто-бэкап БД (HA/DR). Контейнер ради pg_dump (тот же образ postgres:16-alpine,
+  # версия дампа = версии сервера БД). Периодический цикл: первый дамп сразу при старте,
+  # затем раз в BACKUP_INTERVAL_SECONDS (по умолчанию сутки). Дампы кладутся в ./backups
+  # (тот же каталог, что использует update.sh) — единая точка восстановления. Ротация и
+  # DSN — внутри scripts/backup.sh (BACKUP_RETENTION_DAYS из .env.prod). Ручное
+  # восстановление — scripts/restore.sh. Подробнее: docs/ha-and-backups.md.
+  # $$ экранирует переменную от подстановки самим compose — раскрывает её shell в контейнере.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      # BACKUP_DIR внутри контейнера фиксирован (том ниже) и перекрывает значение из
+      # .env.prod, если оно там задано (host-путь для ручных запусков — не для контейнера).
+      BACKUP_DIR: /backups
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - sh
+      - -c
+      - 'while true; do sh /backup.sh || echo "backup run failed (см. лог выше)"; sleep "$${BACKUP_INTERVAL_SECONDS:-86400}"; done'
+
 volumes:
   postgres_data:
   redis_data:

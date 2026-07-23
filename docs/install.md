@@ -304,7 +304,7 @@ grep -nE '^[A-Z_]+=' .env.prod
 | `80` | да | HTTP | Редирект на 443; **исключение** — `/downloads/` раздаётся прямо по HTTP (бинари публичны, установщик сверяет sha256-пин) |
 | `443` | да | HTTPS | Веб-интерфейс, REST API, enrollment, `/ca.crt`, `/downloads/` (nginx) |
 | `50051` | да | gRPC/TLS | Постоянное соединение агентов (mTLS) |
-| `8081` | нет — bind `127.0.0.1` | HTTPS | REST API напрямую, минуя nginx. `/healthz` живёт **только** здесь — nginx его не проксирует |
+| `8081` | нет — bind `127.0.0.1` | HTTPS | REST API напрямую, минуя nginx. `/healthz` (liveness) и `/readyz` (readiness для LB — реальный пинг БД/Redis) живут здесь; см. [ha-and-backups.md](ha-and-backups.md) |
 | `5432` | нет — bind `127.0.0.1` | PostgreSQL | База данных |
 | Redis | нет — только внутри compose-сети | — | Очередь доставки задач (asynq) |
 
@@ -625,6 +625,12 @@ docker compose -f docker-compose.prod.yml down
 mkdir -p backups
 docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U mdm -Fc mdm > backups/db-$(date +%Y%m%d).dump
 ```
+
+> **Авто-бэкапы.** `docker-compose.prod.yml` содержит сервис `backup`: он снимает
+> `pg_dump` в `./backups` по расписанию (`BACKUP_INTERVAL_SECONDS`, по умолчанию сутки)
+> с ротацией (`BACKUP_RETENTION_DAYS`). Восстановление — `scripts/restore.sh`. Запуск
+> нескольких stateless-узлов за балансировщиком и readiness-проба `/readyz` для LB —
+> [ha-and-backups.md](ha-and-backups.md).
 
 Полный список критичных активов, процедуры восстановления и мониторинг —
 [operations.md](operations.md).

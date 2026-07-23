@@ -150,6 +150,9 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 	})
 
 	r.Get("/healthz", h.healthz)
+	// /readyz — readiness для LB/оркестратора (HA): проверяет БД (и Redis, если
+	// настроен). Публичный, рядом с liveness /healthz. См. docs/ha-and-backups.md.
+	r.Get("/readyz", h.readyz)
 	r.With(httprate.LimitByIP(10, time.Minute)).Post("/api/v1/auth/login", h.login)
 	// Шаг-2 логина при включённой MFA: проверяет TOTP/recovery против challenge шага-1.
 	// Публичный (сессии ещё нет), тот же per-IP лимит, что и /login.
@@ -468,6 +471,65 @@ func (h *Handler) deletePolicy(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) healthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// readyzTimeout — общий бюджет на все пробы /readyz. Держим коротким: readiness-проба
+// вызывается LB/оркестратором часто, и она сама не должна залипнуть, если зависимость
+// зависла (иначе пробы стакаются и жгут коннекты).
+const readyzTimeout = 2 * time.Second
+
+// readyz — readiness-проба для LB/оркестратора (HA). В отличие от /healthz (liveness —
+// «процесс жив»), РЕАЛЬНО проверяет зависимости и возвращает 503, если узел не готов
+// принимать трафик: не надо слать запросы на узел с лёгшей БД/Redis. Тело сообщает,
+// какой компонент лёг ({"database":"down"|"ok", ...}); сырой текст ошибки в ответ НЕ
+// кладём (эндпоинт публичный — не раскрываем внутренние адреса/DSN), а логируем на
+// сервере. /healthz остаётся liveness-пробой и это поведение не меняется.
+func (h *Handler) readyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), readyzTimeout)
+	defer cancel()
+
+	checks := map[string]string{}
+	ready := true
+
+	// Postgres — обязательная зависимость: без БД узел бесполезен.
+	if err := h.db.Pool().Ping(ctx); err != nil {
+		ready = false
+		checks["database"] = "down"
+		slog.Error("readyz: database ping failed", "err", err)
+	} else {
+		checks["database"] = "ok"
+	}
+
+	// Redis (очередь доставки задач asynq). Клиент может быть nil (тесты/конфиг без
+	// Redis) — тогда пробу пропускаем. asynqClient.Ping() ходит по go-redis с его
+	// собственным дефолтным таймаутом; заворачиваем в goroutine + select на наш
+	// контекст, чтобы зависший Redis не задержал ответ дольше readyzTimeout.
+	if h.asynqClient != nil {
+		errCh := make(chan error, 1)
+		go func() { errCh <- h.asynqClient.Ping() }()
+		select {
+		case err := <-errCh:
+			if err != nil {
+				ready = false
+				checks["redis"] = "down"
+				slog.Error("readyz: redis ping failed", "err", err)
+			} else {
+				checks["redis"] = "ok"
+			}
+		case <-ctx.Done():
+			ready = false
+			checks["redis"] = "down"
+			slog.Error("readyz: redis ping timeout", "err", ctx.Err())
+		}
+	}
+
+	status := "ready"
+	code := http.StatusOK
+	if !ready {
+		status = "not ready"
+		code = http.StatusServiceUnavailable
+	}
+	writeJSON(w, code, map[string]any{"status": status, "checks": checks})
 }
 
 // maxDeviceSearchLen — потолок длины поисковой строки. Паттерн уходит в ILIKE по
