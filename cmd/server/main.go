@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -72,6 +73,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// ROUTINEOPS_MFA_ENC_KEY (шифрование TOTP-секретов): если ЗАДАН, обязан быть 32 байта
+	// base64 — иначе отказ старта (порча конфига, как guard JWT_SECRET). Если НЕ задан —
+	// см. warn после db-connect (не fatal: потеря ключа не должна кирпичить деплой).
+	if _, err := storage.MFAEncKeyStatus(); errors.Is(err, storage.ErrMFAKeyInvalid) {
+		logger.Error("ROUTINEOPS_MFA_ENC_KEY set but invalid — need 32 bytes base64 — refusing to start")
+		os.Exit(1)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -82,6 +91,14 @@ func main() {
 	}
 	defer db.Close()
 	logger.Info("database connected")
+
+	// MFA enc-ключ не задан, но есть юзеры с включённой MFA → их TOTP-вход деградирует до
+	// recovery-кода. Громко предупреждаем (не падаем: recovery/admin-reset ключа не требуют).
+	if _, kerr := storage.MFAEncKeyStatus(); errors.Is(kerr, storage.ErrMFAKeyMissing) {
+		if n, cerr := db.CountEnabledMFAUsers(ctx); cerr == nil && n > 0 {
+			logger.Warn("ROUTINEOPS_MFA_ENC_KEY not set but MFA-enabled users exist — TOTP login degrades to recovery codes", "count", n)
+		}
+	}
 
 	if cfg.SeedAdminEmail != "" && cfg.SeedAdminPass != "" {
 		if err := seedAdmin(ctx, db, cfg.SeedAdminEmail, cfg.SeedAdminPass, logger); err != nil {
@@ -312,6 +329,12 @@ func main() {
 					logger.Error("cleanup expired revoked tokens", "err", rerr)
 				} else if rn > 0 {
 					logger.Info("cleaned up expired revoked tokens", "count", rn)
+				}
+				mn, merr := db.DeleteExpiredMFAChallenges(context.Background())
+				if merr != nil {
+					logger.Error("cleanup expired mfa challenges", "err", merr)
+				} else if mn > 0 {
+					logger.Info("cleaned up expired mfa challenges", "count", mn)
 				}
 			}
 		}

@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "@/lib/toast"
 import { useT, type Msg } from "@/lib/i18n"
+import MfaSection from "@/components/MfaSection"
 
 const roleLabels: Record<string, Msg> = {
   it_admin: { ru: "IT-администратор", en: "IT administrator" },
@@ -102,6 +103,8 @@ export default function Profile() {
         </div>
         <Button type="submit" disabled={loading} className="self-start">{loading ? t(M.saving) : t(M.submit)}</Button>
       </form>
+
+      <MfaSection />
     </div>
   )
 }

@@ -26,6 +26,12 @@ const claimsKey contextKey = "claims"
 // и добавление роли требовало помнить про все остальные места проверки.
 var validRoles = map[string]bool{"it_admin": true, "viewer": true}
 
+// dummyBcryptHash — фиктивный bcrypt-хеш той же стоимости для выравнивания времени логина.
+// При несуществующем email сравнение по нему тратит те же ~200мс, что реальный bcrypt для
+// существующего аккаунта с неверным паролем — иначе мгновенный ответ выдал бы, что email не
+// зарегистрирован (timing-оракул энумерации аккаунтов). Считается один раз на старте пакета.
+var dummyBcryptHash, _ = bcrypt.GenerateFromPassword([]byte("routineops-login-timing-equalizer"), bcryptCost)
+
 // newJTI генерирует случайный идентификатор токена (jti) для блок-листа отзыва (M-7).
 func newJTI() (string, error) {
 	b := make([]byte, 16)
@@ -250,12 +256,42 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	if user == nil {
+		// Выравниваем время с веткой существующего юзера: прогоняем bcrypt по dummy-хешу,
+		// иначе мгновенный ответ (|| короткозамкнёт реальный bcrypt) выдал бы, что email не
+		// зарегистрирован. Результат игнорируем — важна лишь потраченная задержка.
+		_ = bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password))
+	}
 	if user == nil || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
 		h.loginLimiter.fail(acctKey, time.Now())
 		h.audit(r.Context(), "", req.Email, "login_failed", "user", "", nil)
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
+	// Пароль верный. Если у юзера включена MFA — сессию НЕ выдаём: запускаем второй шаг
+	// (challenge в ТЕЛЕ ответа, не cookie — см. mfa.go). loginLimiter.success тут НЕ
+	// вызываем: счётчик неудач переносится на шаг-2, чтобы brute-force TOTP не стартовал
+	// «с чистого листа».
+	mfaEnabled, _, _, _, err := h.db.GetUserMFA(r.Context(), user.ID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if mfaEnabled {
+		mfaToken, terr := newChallengeToken()
+		if terr != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if err := h.db.CreateMFAChallenge(r.Context(), user.ID, hashHex(mfaToken), mfaChallengeTTL); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		h.audit(r.Context(), user.ID, user.Email, "mfa_challenge", "user", user.ID, nil)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "mfa_required", "mfa_token": mfaToken})
+		return
+	}
+
 	h.loginLimiter.success(acctKey)
 
 	if err := h.issueToken(w, user.ID, user.Email, user.Role); err != nil {

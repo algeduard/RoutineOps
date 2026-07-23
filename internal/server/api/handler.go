@@ -148,6 +148,9 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 
 	r.Get("/healthz", h.healthz)
 	r.With(httprate.LimitByIP(10, time.Minute)).Post("/api/v1/auth/login", h.login)
+	// Шаг-2 логина при включённой MFA: проверяет TOTP/recovery против challenge шага-1.
+	// Публичный (сессии ещё нет), тот же per-IP лимит, что и /login.
+	r.With(httprate.LimitByIP(10, time.Minute)).Post("/api/v1/auth/login/mfa", h.loginMFA)
 	r.Post("/api/v1/auth/logout", h.logout)
 	// Неаутентифицированные side-effect роуты: SECURITY.md заявляет «rate limits» как
 	// общий контроль, но раньше он стоял только на /login. forgot-password шлёт письмо
@@ -184,6 +187,13 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 		// это создавший админ. Без гарда viewer-токен менял бы админу пароль (и
 		// сбрасывал все его живые сессии), зная лишь текущий пароль.
 		r.With(requireHuman).Post("/me/password", h.changePassword)
+		// MFA — личный второй фактор ЧЕЛОВЕКА (requireHuman: у сервисного токена нет
+		// личного аккаунта). Доступно любой роли; сам логин-шаг-2 — публичный /auth/login/mfa.
+		r.With(requireHuman).Get("/me/mfa", h.mfaStatus)
+		r.With(requireHuman).Post("/me/mfa/enroll", h.enrollMFA)
+		r.With(requireHuman).Post("/me/mfa/confirm", h.confirmMFA)
+		r.With(requireHuman).Post("/me/mfa/disable", h.disableMFA)
+		r.With(requireHuman).Post("/me/mfa/recovery-codes", h.regenerateRecoveryCodes)
 		r.Get("/devices", h.listDevices)
 		r.Get("/devices/{id}", h.getDevice)
 		r.Get("/devices/{id}/tasks", h.listTasks)
@@ -289,6 +299,10 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 			// нет в списке /api-tokens, поэтому при разборе инцидента её не находят, а
 			// отзыв утёкшего токена доступ не отбирает.
 			r.With(requireHuman).Post("/users/invite", h.inviteUser)
+			// Admin-reset MFA залоченному юзеру: снимает второй фактор БЕЗ его кодов
+			// (аварийный выход при потере телефона и recovery-кодов). requireHuman —
+			// привилегированное действие над чужой учёткой. Аудит mfa_admin_reset.
+			r.With(requireHuman).Post("/users/{id}/mfa/reset", h.adminResetMFA)
 			// Сервисные токены — только it_admin И только человеком (requireHuman).
 			// Токен это учётные данные с ролью, выпуск их равносилен заведению
 			// пользователя. 🔴 Без requireHuman модель отзыва была фикцией: утёкший

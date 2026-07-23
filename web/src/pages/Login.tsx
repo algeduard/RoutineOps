@@ -1,6 +1,6 @@
 import { useState, FormEvent } from "react"
 import { useNavigate, Link } from "react-router-dom"
-import { login } from "@/lib/auth"
+import { login, loginMfa } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,6 +15,17 @@ const M = {
   signingIn: { ru: "Вход...", en: "Signing in..." },
   signIn: { ru: "Войти", en: "Sign in" },
   forgotPassword: { ru: "Забыли пароль?", en: "Forgot password?" },
+  mfaTitle: { ru: "Двухфакторная аутентификация", en: "Two-factor authentication" },
+  mfaCode: { ru: "Код из приложения", en: "Authenticator code" },
+  mfaCodeHint: { ru: "Введите 6-значный код из приложения-аутентификатора", en: "Enter the 6-digit code from your authenticator app" },
+  recoveryCode: { ru: "Код восстановления", en: "Recovery code" },
+  recoveryHint: { ru: "Введите один из сохранённых кодов восстановления", en: "Enter one of your saved recovery codes" },
+  useRecovery: { ru: "Использовать код восстановления", en: "Use a recovery code" },
+  useAuthenticator: { ru: "Использовать код из приложения", en: "Use an authenticator code" },
+  verify: { ru: "Подтвердить", en: "Verify" },
+  verifying: { ru: "Проверка...", en: "Verifying..." },
+  invalidCode: { ru: "Неверный код или срок входа истёк", en: "Invalid code or the sign-in expired" },
+  back: { ru: "Назад", en: "Back" },
 }
 
 export default function Login() {
@@ -23,6 +34,10 @@ export default function Login() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  // Непусто ⇒ шаг-1 прошёл, включена MFA, ждём второй фактор.
+  const [mfaToken, setMfaToken] = useState("")
+  const [code, setCode] = useState("")
+  const [useRecovery, setUseRecovery] = useState(false)
   const navigate = useNavigate()
 
   async function handleSubmit(e: FormEvent) {
@@ -30,7 +45,11 @@ export default function Login() {
     setError("")
     setLoading(true)
     try {
-      await login(email, password)
+      const res = await login(email, password)
+      if (res.mfaRequired) {
+        setMfaToken(res.mfaToken)
+        return
+      }
       navigate("/dashboard")
     } catch {
       setError(t(M.invalidCredentials))
@@ -38,6 +57,33 @@ export default function Login() {
       setLoading(false)
     }
   }
+
+  async function handleMfaSubmit(e: FormEvent) {
+    e.preventDefault()
+    setError("")
+    setLoading(true)
+    try {
+      await loginMfa(mfaToken, code)
+      navigate("/dashboard")
+    } catch {
+      setError(t(M.invalidCode))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function backToPassword() {
+    setMfaToken("")
+    setCode("")
+    setUseRecovery(false)
+    setError("")
+  }
+
+  const errorNode = error && (
+    // --destructive в тёмной теме (45% светлоты) на стекле почти не читается —
+    // берём тот же красный, что у алерт-цифры на дашборде.
+    <p className="text-sm text-destructive dark:text-[hsl(0_72%_66%)]">{error}</p>
+  )
 
   return (
     // Без bg-background: карта стоит прямо на фоне body с радиальными бликами.
@@ -50,38 +96,83 @@ export default function Login() {
           </CardTitle>
         </CardHeader>
         <CardContent className="px-5 pb-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-soft">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-soft">{t(M.password)}</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            {/* --destructive в тёмной теме (45% светлоты) на стекле почти не читается —
-                берём тот же красный, что у алерт-цифры на дашборде. */}
-            {error && <p className="text-sm text-destructive dark:text-[hsl(0_72%_66%)]">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? t(M.signingIn) : t(M.signIn)}
-            </Button>
-            <Link to="/forgot-password" className="block text-center text-sm text-muted-foreground hover:text-foreground transition-colors">
-              {t(M.forgotPassword)}
-            </Link>
-          </form>
+          {!mfaToken ? (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="email" className="text-soft">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="password" className="text-soft">{t(M.password)}</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              {errorNode}
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? t(M.signingIn) : t(M.signIn)}
+              </Button>
+              <Link to="/forgot-password" className="block text-center text-sm text-muted-foreground hover:text-foreground transition-colors">
+                {t(M.forgotPassword)}
+              </Link>
+            </form>
+          ) : (
+            <form onSubmit={handleMfaSubmit} className="space-y-4">
+              <div>
+                <h2 className="text-[15px] font-semibold text-foreground text-center">{t(M.mfaTitle)}</h2>
+                <p className="text-xs text-muted-foreground text-center mt-1">
+                  {useRecovery ? t(M.recoveryHint) : t(M.mfaCodeHint)}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="mfacode" className="text-soft">
+                  {useRecovery ? t(M.recoveryCode) : t(M.mfaCode)}
+                </Label>
+                <Input
+                  id="mfacode"
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  required
+                  autoFocus
+                  autoComplete="one-time-code"
+                  inputMode={useRecovery ? "text" : "numeric"}
+                  placeholder={useRecovery ? "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" : "000000"}
+                />
+              </div>
+              {errorNode}
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? t(M.verifying) : t(M.verify)}
+              </Button>
+              <div className="flex items-center justify-between text-sm">
+                <button
+                  type="button"
+                  onClick={backToPassword}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {t(M.back)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setUseRecovery((v) => !v); setCode(""); setError("") }}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {useRecovery ? t(M.useAuthenticator) : t(M.useRecovery)}
+                </button>
+              </div>
+            </form>
+          )}
         </CardContent>
       </SpotlightCard>
     </div>

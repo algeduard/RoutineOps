@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { UserPlus } from "lucide-react"
 import { toast } from "@/lib/toast"
 import { useT, type Msg } from "@/lib/i18n"
+import { useMe } from "@/lib/useMe"
 
 interface User {
   id: string
@@ -60,10 +61,23 @@ const M = {
     en: "Invite created, but the email was not sent and no link is available",
   },
   inviteErr: { ru: "Не удалось отправить приглашение", en: "Failed to send invite" },
+  colActions: { ru: "Действия", en: "Actions" },
+  resetMfa: { ru: "Сбросить 2FA", en: "Reset 2FA" },
+  resetMfaTitle: { ru: "Сбросить двухфакторную аутентификацию", en: "Reset two-factor authentication" },
+  resetMfaBody: {
+    ru: "Снять MFA у {email}? Пользователь сможет войти по паролю и заново её настроить. Действие записывается в аудит.",
+    en: "Remove MFA for {email}? The user will sign in with their password and set it up again. This is recorded in the audit log.",
+  },
+  resetMfaOk: { ru: "MFA сброшена", en: "MFA reset" },
+  resetMfaErr: { ru: "Не удалось сбросить MFA", en: "Failed to reset MFA" },
+  confirm: { ru: "Сбросить", en: "Reset" },
 }
 
 export default function Users() {
   const t = useT()
+  const { me } = useMe()
+  const isAdmin = me?.role === "it_admin"
+  const colCount = isAdmin ? 5 : 4
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState("")
@@ -71,6 +85,9 @@ export default function Users() {
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState("it_admin")
   const [inviteLoading, setInviteLoading] = useState(false)
+  // Пользователь, которому сбрасываем MFA (открывает диалог подтверждения).
+  const [resetUser, setResetUser] = useState<User | null>(null)
+  const [resetLoading, setResetLoading] = useState(false)
   // Ссылка-приглашение, если письмо не ушло (SMTP выключен или отправка не удалась):
   // бэкенд возвращает invite_url, чтобы оператор передал её вручную.
   const [inviteLink, setInviteLink] = useState<string | null>(null)
@@ -81,6 +98,20 @@ export default function Users() {
       .catch(() => toast({ title: t(M.loadErr), variant: "destructive" }))
       .finally(() => setLoading(false))
   }, [])
+
+  async function handleResetMfa() {
+    if (!resetUser) return
+    setResetLoading(true)
+    try {
+      await api.post(`/users/${resetUser.id}/mfa/reset`)
+      toast({ title: t(M.resetMfaOk), variant: "success" })
+      setResetUser(null)
+    } catch {
+      toast({ title: t(M.resetMfaErr), variant: "destructive" })
+    } finally {
+      setResetLoading(false)
+    }
+  }
 
   async function handleInvite(e: FormEvent) {
     e.preventDefault()
@@ -143,18 +174,19 @@ export default function Users() {
               <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.colEmail)}</TableHead>
               <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.colRole)}</TableHead>
               <TableHead className="px-5 text-xs font-medium text-muted-foreground">{t(M.colAdded)}</TableHead>
+              {isAdmin && <TableHead className="px-5 text-xs font-medium text-muted-foreground text-right">{t(M.colActions)}</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow className="hover:bg-transparent"><TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-8">{t(M.loading)}</TableCell></TableRow>
+              <TableRow className="hover:bg-transparent"><TableCell colSpan={colCount} className="text-center text-xs text-muted-foreground py-8">{t(M.loading)}</TableCell></TableRow>
             ) : users.length === 0 ? (
-              <TableRow className="hover:bg-transparent"><TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-8">{t(M.noUsers)}</TableCell></TableRow>
+              <TableRow className="hover:bg-transparent"><TableCell colSpan={colCount} className="text-center text-xs text-muted-foreground py-8">{t(M.noUsers)}</TableCell></TableRow>
             ) : (() => {
               const q = query.trim().toLowerCase()
               const filtered = q ? users.filter((u) => u.email.toLowerCase().includes(q)) : users
               if (filtered.length === 0) {
-                return <TableRow className="hover:bg-transparent"><TableCell colSpan={4} className="text-center text-xs text-muted-foreground py-8">{t(M.nothingFound)}</TableCell></TableRow>
+                return <TableRow className="hover:bg-transparent"><TableCell colSpan={colCount} className="text-center text-xs text-muted-foreground py-8">{t(M.nothingFound)}</TableCell></TableRow>
               }
               return filtered.map((u) => (
               <TableRow key={u.id} className="hover:bg-transparent">
@@ -168,6 +200,11 @@ export default function Users() {
                 <TableCell className="px-5 py-3 text-xs text-muted-foreground tabular-nums">
                   {new Date(u.created_at).toLocaleDateString("ru-RU")}
                 </TableCell>
+                {isAdmin && (
+                  <TableCell className="px-5 py-3 text-right">
+                    <Button variant="outline" size="sm" onClick={() => setResetUser(u)}>{t(M.resetMfa)}</Button>
+                  </TableCell>
+                )}
               </TableRow>
               ))
             })()}
@@ -221,6 +258,23 @@ export default function Users() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resetUser !== null} onOpenChange={(o) => { if (!o) setResetUser(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t(M.resetMfaTitle)}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground pt-1">
+            {t(M.resetMfaBody, { email: resetUser?.email ?? "" })}
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => setResetUser(null)}>{t(M.cancel)}</Button>
+            <Button type="button" variant="destructive" disabled={resetLoading} onClick={handleResetMfa}>
+              {resetLoading ? t(M.sending) : t(M.confirm)}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
