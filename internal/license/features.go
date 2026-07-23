@@ -16,4 +16,6 @@ const (
 	FeatureSSO = "sso"
 	// FeatureCompliance — compliance-дашборды и отчёты (CIS/SOC2-скоринг по существующим данным).
 	FeatureCompliance = "compliance"
+	// FeatureCVEScan — сканирование инвентаря ПО на известные уязвимости (CVE).
+	FeatureCVEScan = "cve_scan"
 )

@@ -205,6 +205,7 @@ export interface Capabilities {
   audit_integrity: boolean
   sso: boolean
   compliance: boolean
+  cve_scan: boolean
 }
 
 // ComplianceCheck — одна проверка соответствия в отчёте (GET /compliance/report,
@@ -226,6 +227,46 @@ export interface ComplianceReport {
   score: number
   generated_at: string
   checks: ComplianceCheck[]
+}
+
+// CVE-сканирование (enterprise). CVEFinding — уязвимость, найденная на устройстве последним
+// сканом; product/installed_version — то, что реально стоит на машине (из инвентаря).
+export type CVESeverity = "low" | "medium" | "high" | "critical"
+
+export interface CVEFinding {
+  id: string
+  device_id: string
+  hostname: string
+  cve_id: string
+  product: string
+  installed_version: string
+  severity: CVESeverity
+  cvss?: number
+  detected_at: string
+}
+
+export interface CVESeverityCount {
+  severity: CVESeverity
+  count: number
+}
+
+export interface CVEDeviceCount {
+  device_id: string
+  hostname: string
+  count: number
+  critical: number
+  high: number
+}
+
+// CVESummary — сводка по парку (GET /cve/summary). feed_count — размер загруженного фида
+// (0 = фид ещё не залит), total_findings — всего находок, by_severity — фиксированный
+// порядок critical→low (с нулями), by_device — только затронутые устройства.
+export interface CVESummary {
+  total_findings: number
+  affected_devices: number
+  feed_count: number
+  by_severity: CVESeverityCount[]
+  by_device: CVEDeviceCount[]
 }
 
 // AuditIntegrity — результат проверки целостности журнала аудита (GET /audit-log/verify,

@@ -26,6 +26,7 @@ import Users from "@/pages/Users"
 import License from "@/pages/License"
 import SiemExport from "@/pages/SiemExport"
 import Compliance from "@/pages/Compliance"
+import Cve from "@/pages/Cve"
 import Profile from "@/pages/Profile"
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="license" element={<AdminRoute><License /></AdminRoute>} />
           <Route path="siem" element={<AdminRoute><SiemExport /></AdminRoute>} />
           <Route path="compliance" element={<AdminRoute><Compliance /></AdminRoute>} />
+          <Route path="cve" element={<AdminRoute><Cve /></AdminRoute>} />
           <Route path="profile" element={<Profile />} />
         </Route>
       </Routes>
