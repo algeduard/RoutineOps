@@ -256,17 +256,29 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if user == nil || user.AuthSource == "oidc" {
-		// Несуществующий ИЛИ SSO-аккаунт (auth_source='oidc', локального пароля нет — вход
-		// только через IdP/IdP-MFA): прогоняем bcrypt по dummy-хешу для выравнивания времени,
-		// иначе мгновенный ответ выдал бы существование/тип аккаунта (timing-оракул).
+	if user == nil || user.AuthSource != "local" {
+		// Несуществующий ИЛИ внешне-провижининговый аккаунт (auth_source 'oidc'/'scim' —
+		// локального пароля нет, вход только через IdP/IdP-MFA): прогоняем bcrypt по dummy-хешу
+		// для выравнивания времени, иначе мгновенный ответ выдал бы существование/тип аккаунта
+		// (timing-оракул).
 		_ = bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password))
 	}
-	if user == nil || user.AuthSource == "oidc" ||
+	if user == nil || user.AuthSource != "local" ||
 		bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
 		h.loginLimiter.fail(acctKey, time.Now())
 		h.audit(r.Context(), "", req.Email, "login_failed", "user", "", nil)
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+	// Деактивированный (SCIM active=false) юзер не входит даже с верным паролем. Проверка
+	// ПОСЛЕ сверки пароля — чтобы состояние учётки не утекало неаутентифицированному (тот же
+	// принцип, что и у dummy-bcrypt выше). jwtMiddleware гейтит уже выданные сессии.
+	if active, aerr := h.db.IsUserActive(r.Context(), user.ID); aerr != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	} else if !active {
+		h.audit(r.Context(), user.ID, user.Email, "login_denied_inactive", "user", user.ID, nil)
+		http.Error(w, "account is deactivated", http.StatusForbidden)
 		return
 	}
 	// Пароль верный. Если у юзера включена MFA — сессию НЕ выдаём: запускаем второй шаг

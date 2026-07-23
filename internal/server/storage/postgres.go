@@ -2419,11 +2419,13 @@ func (db *DB) UpdateUserPassword(ctx context.Context, userID, passwordHash strin
 }
 
 // GetUserPasswordChangedAt возвращает момент последней смены пароля (token-epoch)
-// и exists=false, если пользователя больше нет (живой токен удалённого юзера →
-// jwtMiddleware отвергает). Лёгкий однострочный lookup для middleware.
+// и exists=false, если пользователя больше нет ИЛИ он деактивирован (is_active=false,
+// SCIM-деактивация). Живой токен удалённого/деактивированного юзера → jwtMiddleware
+// отвергает (exists=false → 401). Лёгкий однострочный lookup для middleware; фильтр по
+// is_active гейтит уже выданные сессии, а не только новые логины.
 func (db *DB) GetUserPasswordChangedAt(ctx context.Context, userID string) (time.Time, bool, error) {
 	var t time.Time
-	err := db.pool.QueryRow(ctx, `SELECT password_changed_at FROM users WHERE id = $1`, userID).Scan(&t)
+	err := db.pool.QueryRow(ctx, `SELECT password_changed_at FROM users WHERE id = $1 AND is_active`, userID).Scan(&t)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return time.Time{}, false, nil
 	}

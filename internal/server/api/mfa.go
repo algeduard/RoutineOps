@@ -238,6 +238,17 @@ func (h *Handler) loginMFA(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Деактивированного (SCIM active=false) юзера не пускаем и на шаге-2, даже с валидным
+	// фактором: сессию не выдаём (jwtMiddleware всё равно отверг бы её на первом же запросе).
+	if active, aerr := h.db.IsUserActive(r.Context(), user.ID); aerr != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	} else if !active {
+		h.audit(r.Context(), user.ID, user.Email, "login_denied_inactive", "user", user.ID, nil)
+		http.Error(w, "account is deactivated", http.StatusForbidden)
+		return
+	}
+
 	h.loginLimiter.success(acctKey)
 	if err := h.issueToken(w, user.ID, user.Email, user.Role); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

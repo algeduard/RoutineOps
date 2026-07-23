@@ -207,6 +207,7 @@ export interface Capabilities {
   compliance: boolean
   cve_scan: boolean
   multitenancy: boolean
+  scim: boolean
 }
 
 // ComplianceCheck — одна проверка соответствия в отчёте (GET /compliance/report,
@@ -281,6 +282,19 @@ export interface Tenant {
   is_default: boolean
   device_count: number
   user_count: number
+}
+
+// SCIMConfig — статус SCIM-провижининга (GET /scim/config, enterprise). enabled — сгенерирован
+// ли bearer-токен; base_url — что вписать в IdP (Okta/Azure AD). Сам токен наружу не отдаётся.
+export interface SCIMConfig {
+  enabled: boolean
+  base_url: string
+}
+
+// SCIMToken — ответ на ротацию (POST /scim/token). token показывается ОДИН раз (хранится хеш).
+export interface SCIMToken {
+  token: string
+  base_url: string
 }
 
 // AuditIntegrity — результат проверки целостности журнала аудита (GET /audit-log/verify,

@@ -21,4 +21,6 @@ const (
 	// FeatureMultitenancy — модель тенантов (арендаторов) и привязка устройств/пользователей
 	// к ним. MVP: управление + назначение; полная per-query изоляция данных — follow-up.
 	FeatureMultitenancy = "multitenancy"
+	// FeatureSCIM — provisioning юзеров из IdP по SCIM 2.0 (Okta/Azure AD/OneLogin).
+	FeatureSCIM = "scim"
 )

@@ -117,6 +117,10 @@ type Handler struct {
 	// sso — OIDC-провайдер (enterprise), ставится через WithSSO. nil в open-core →
 	// публичные /auth/sso/* отдают 404/выкл. См. sso.go.
 	sso SSOProvider
+	// scim — SCIM 2.0 provisioning-провайдер (enterprise), ставится через WithSCIM. nil в
+	// open-core → публичные /scim/v2/* отдают 404. Провайдер сам проверяет лицензию и bearer.
+	// См. scim.go (базовый шов) и scim_enterprise.go (реализация).
+	scim SCIMProvider
 }
 
 func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *enroll.CASigner, publicWebURL, releasesDir string, m *mailer.Mailer, cookieSecure bool, opts ...RouterOption) http.Handler {
@@ -171,6 +175,11 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 	r.With(httprate.LimitByIP(10, time.Minute)).Get("/api/v1/auth/sso/login", h.ssoLogin)
 	r.With(httprate.LimitByIP(10, time.Minute)).Get("/api/v1/auth/sso/callback", h.ssoCallback)
 	r.Get("/api/v1/auth/sso/status", h.ssoStatus)
+	// SCIM 2.0 provisioning (enterprise) — ПУБЛИЧНЫЙ неймспейс: IdP (Okta/Azure AD) ходит СВОИМ
+	// bearer-токеном (Authorization: Bearer <scim>), НЕ админским JWT, поэтому роуты ВНЕ
+	// /api/v1 authed-группы и ДО SPA-wildcard. Делегируют h.scim (WithSCIM); в open-core
+	// h.scim==nil → 404. Провайдер сам проверяет лицензию (402) и bearer (401). См. scim.go.
+	r.Handle("/scim/v2/*", http.HandlerFunc(h.scimHandler))
 	r.Post("/api/v1/enroll", h.enroll)
 	r.Get("/api/v1/agent/version", h.agentVersion)
 	r.Get("/api/v1/installer", h.getInstaller)
@@ -1733,10 +1742,10 @@ func (h *Handler) forgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	// Always return 200 to not leak user existence
 	user, _ := h.db.GetUserByEmail(r.Context(), req.Email)
-	// SSO-аккаунты (auth_source='oidc') локального пароля не имеют — reset-токен НЕ выпускаем
-	// (закрывает бэкдор «получить локальный пароль в обход IdP/IdP-MFA»). Ответ остаётся 200
-	// (анти-энумерация): снаружи неотличимо от несуществующего email.
-	if user != nil && user.AuthSource != "oidc" {
+	// Внешне-провижининговые аккаунты (auth_source 'oidc'/'scim') локального пароля не имеют —
+	// reset-токен НЕ выпускаем (закрывает бэкдор «получить локальный пароль в обход IdP/IdP-MFA»).
+	// Ответ остаётся 200 (анти-энумерация): снаружи неотличимо от несуществующего email.
+	if user != nil && user.AuthSource == "local" {
 		tb := make([]byte, 32)
 		_, _ = rand.Read(tb)
 		token := hex.EncodeToString(tb)
@@ -1772,14 +1781,15 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid or expired token", http.StatusBadRequest)
 		return
 	}
-	// SSO-аккаунт: локальный пароль устанавливать нельзя (обход IdP/IdP-MFA). Для oidc-юзера
-	// токен и не выпускается (forgotPassword его пропускает), но гардим defense-in-depth.
+	// Внешне-провижининговый аккаунт (oidc/scim): локальный пароль устанавливать нельзя (обход
+	// IdP/IdP-MFA). Токен таким и не выпускается (forgotPassword их пропускает), но гардим
+	// defense-in-depth.
 	resetUser, uerr := h.db.GetUserByID(r.Context(), t.UserID)
 	if uerr != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if resetUser == nil || resetUser.AuthSource == "oidc" {
+	if resetUser == nil || resetUser.AuthSource != "local" {
 		http.Error(w, "invalid or expired token", http.StatusBadRequest)
 		return
 	}
