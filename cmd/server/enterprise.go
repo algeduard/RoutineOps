@@ -55,5 +55,11 @@ func enterpriseSetup(_ *gateway.Gateway, _ *storage.DB, logger *slog.Logger) []a
 		logger.Warn("ESCROW_* заданы, но FileVault-escrow в этой сборке не реализован — игнорируются")
 	}
 
-	return []api.RouterOption{api.WithAdminRoutes(api.LicenseRoutes(mgr))}
+	return []api.RouterOption{
+		api.WithAdminRoutes(api.LicenseRoutes(mgr)),
+		// Удаление ПО из интерфейса — enterprise-фича за лицензией (mgr.Has внутри хендлера).
+		api.WithAdminRoutes(api.SoftwareRemovalRoutes(mgr)),
+		// /capabilities — какие enterprise-фичи активны (веб гейтит по ним UI). Все роли.
+		api.WithRoutes(api.CapabilitiesRoutes(mgr)),
+	}
 }

@@ -326,6 +326,14 @@ func (e *Executor) handle(task *pb.Task) {
 		return
 	}
 
+	// Команда тихой деинсталляции ПО приезжает в Task.remove_software (enterprise-фича).
+	// Запускает деинсталлятор (внешний процесс), поэтому идёт под семафором как скрипт
+	// (слот уже захвачен выше), но отчитывается как control-plane — обычным ReportTaskResult.
+	if rm := task.GetRemoveSoftware(); rm != nil {
+		e.handleRemoveSoftware(client, id, rm)
+		return
+	}
+
 	// Семафор скрипт-задачи уже захвачен в начале handle (см. коммент там).
 	e.log.Info("выполняю задачу", slog.String("task_id", id), slog.String("platform", task.GetPlatform()))
 	runCtx, cancel := context.WithTimeout(e.execCtx, maxRuntime)
@@ -535,6 +543,30 @@ func (e *Executor) handleDecommission(client pb.AgentServiceClient, taskID strin
 
 	// Сигналим рабочему циклу: остановиться и выполнить teardown (cmd/agent).
 	e.onDecommission(reqID, dc.GetReason())
+}
+
+// handleRemoveSoftware тихо деинсталлирует ПО (enterprise-фича «удаление ПО из интерфейса»)
+// и отчитывается обычным ReportTaskResult (SUCCESS/ERROR по коду выхода деинсталлятора).
+// Деинсталляция — внешний процесс, ограничена maxRuntime. Платформенная реализация —
+// removeSoftware (Windows: UninstallString из реестра; прочие ОС — не поддерживается).
+func (e *Executor) handleRemoveSoftware(client pb.AgentServiceClient, taskID string, rm *pb.RemoveSoftwareCommand) {
+	name := rm.GetName()
+	e.log.Info("remove_software: тихая деинсталляция", slog.String("task_id", taskID), slog.String("name", name))
+
+	runCtx, cancel := context.WithTimeout(e.execCtx, maxRuntime)
+	defer cancel()
+	out, err := removeSoftware(runCtx, name, rm.GetVersion())
+
+	result := &pb.TaskResult{TaskId: taskID, Status: pb.TaskStatus_TASK_STATUS_SUCCESS, Output: out}
+	if err != nil {
+		e.log.Error("remove_software: деинсталляция не удалась", slog.String("name", name), slog.Any("error", err))
+		result.Status = pb.TaskStatus_TASK_STATUS_ERROR
+		result.ErrorLog = err.Error()
+	}
+	// Durable-доставка (outbox), а НЕ прямой unary: агент переживает удаление ПО (в отличие
+	// от decommission), поэтому потерянный на транзиентном сбое отчёт об УСПЕШНОМ удалении
+	// не должен навсегда остаться 'acked'/ложным 'failed' — deliver переживает обрыв/рестарт.
+	e.deliver(client, result)
 }
 
 func (e *Executor) ack(client pb.AgentServiceClient, id string) {

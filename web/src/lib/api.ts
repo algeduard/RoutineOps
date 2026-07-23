@@ -197,6 +197,12 @@ export interface MigrationRosterResponse {
   entries: MigrationRosterEntry[]
 }
 
+// Capabilities — какие enterprise-функции активны при текущей лицензии (GET /capabilities;
+// в open-core роута нет → 404, веб трактует всё как false). Ключи = константы фич сервера.
+export interface Capabilities {
+  software_removal: boolean
+}
+
 export interface DeviceDetailResponse {
   device: Device
   software: Software[] | null

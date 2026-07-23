@@ -453,6 +453,10 @@ type Task struct {
 	LockReason    string    `json:"lock_reason"`
 	LockUnlock    bool      `json:"lock_unlock"`
 	LockMode      string    `json:"lock_mode"` // 'overlay'|'filevault' (022); пусто трактуется как overlay
+	// task_type='remove_software' (миграция 041): продукт к тихой деинсталляции. Пусто у
+	// остальных типов задач.
+	SoftwareName    string `json:"software_name"`
+	SoftwareVersion string `json:"software_version"`
 }
 
 // Режимы блокировки (совпадают с CHECK-домены значений lock_mode в 022 и с
@@ -636,6 +640,22 @@ func (db *DB) CreateLockTask(ctx context.Context, deviceID, lockHash, lockReason
 	return &t, err
 }
 
+// CreateRemoveSoftwareTask ставит задачу тихой деинсталляции ПО (enterprise-фича
+// «удаление ПО из интерфейса»). task_type='remove_software'; lock_*-поля берут DEFAULT.
+// Агент ищет продукт в реестре по name и подтверждает обычным ReportTaskResult
+// (SUCCESS/ERROR по коду выхода деинсталлятора). Гейт по лицензии — на уровне API.
+// Статус устройства НЕ трогаем: команда доставится, когда устройство подключено.
+func (db *DB) CreateRemoveSoftwareTask(ctx context.Context, deviceID, name, version string) (*Task, error) {
+	var t Task
+	err := db.pool.QueryRow(ctx, `
+  INSERT INTO tasks (device_id, script_content, platform, priority, status, task_type, software_name, software_version)
+  VALUES ($1, '', COALESCE((SELECT os FROM devices WHERE id = $1), 'unknown'), 'high', 'pending', 'remove_software', $2, $3)
+  RETURNING id, device_id, script_content, platform, priority, status, created_at, task_type, software_name, software_version
+ `, deviceID, name, version).
+		Scan(&t.ID, &t.DeviceID, &t.ScriptContent, &t.Platform, &t.Priority, &t.Status, &t.CreatedAt, &t.TaskType, &t.SoftwareName, &t.SoftwareVersion)
+	return &t, err
+}
+
 func (db *DB) UpdateDeviceLockStatus(ctx context.Context, deviceID, lockStatus string) error {
 	_, err := db.pool.Exec(ctx,
 		`UPDATE devices SET lock_status = $2 WHERE id = $1`, deviceID, lockStatus)
@@ -738,10 +758,10 @@ func (db *DB) GetTask(ctx context.Context, taskID string) (*Task, error) {
 	var t Task
 	err := db.pool.QueryRow(ctx, `
   SELECT id, device_id, script_content, platform, priority, status, output, error_log, created_at,
-         task_type, lock_hash, lock_reason, lock_unlock, lock_mode
+         task_type, lock_hash, lock_reason, lock_unlock, lock_mode, software_name, software_version
 FROM tasks WHERE id = $1
  `, taskID).Scan(&t.ID, &t.DeviceID, &t.ScriptContent, &t.Platform, &t.Priority, &t.Status, &t.Output, &t.ErrorLog, &t.CreatedAt,
-		&t.TaskType, &t.LockHash, &t.LockReason, &t.LockUnlock, &t.LockMode)
+		&t.TaskType, &t.LockHash, &t.LockReason, &t.LockUnlock, &t.LockMode, &t.SoftwareName, &t.SoftwareVersion)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

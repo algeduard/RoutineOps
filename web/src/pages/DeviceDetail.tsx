@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
-import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown, LifeBuoy, MonitorPlay, ArrowRightLeft } from "lucide-react"
+import { ChevronLeft, Copy, Check, Terminal, ShieldCheck, Cpu, HardDrive, MemoryStick, ChevronDown, LifeBuoy, MonitorPlay, ArrowRightLeft, Trash2 } from "lucide-react"
 import api, { Device, Software, Task, Script, HelpRequest, DeviceDetailResponse, ReenrollResponse, MigrationRosterEntry, UpdateChannel, deviceRunsScript, agentPlatform, DEVICE_STATUS, helpRequestScreenshotUrl } from "@/lib/api"
 import { GroupBadge } from "@/components/GroupBadge"
 import DeviceResources from "@/components/DeviceResources"
@@ -15,6 +15,7 @@ import ConfirmDialog from "@/components/ConfirmDialog"
 import { toast } from "@/lib/toast"
 import { formatDistanceToNow } from "@/lib/time"
 import { useMe } from "@/lib/useMe"
+import { useCapabilities } from "@/lib/useCapabilities"
 import { useT, type Msg } from "@/lib/i18n"
 
 type TaskForm = { script: string; platform: string; priority: string }
@@ -125,6 +126,11 @@ const M = {
   screenshotNoText:    { ru: "(скриншот без текста)", en: "(screenshot without text)" },
   screenshotArrow:     { ru: "скриншот →", en: "screenshot →" },
   softwareHeading:     { ru: "Программное обеспечение", en: "Software" },
+  removeSoftwareAria:  { ru: "Удалить {name}", en: "Remove {name}" },
+  removeSoftwareTitle: { ru: "Удалить ПО с устройства?", en: "Remove software from the device?" },
+  removeSoftwareDesc:  { ru: "«{name}» будет удалено с «{host}» тихой деинсталляцией. Действие фиксируется в аудите. Переустановить придётся вручную.", en: "\"{name}\" will be silently uninstalled from \"{host}\". The action is recorded in the audit log. Reinstalling is manual." },
+  removeSoftwareBtn:   { ru: "Удалить", en: "Remove" },
+  removeSoftwareSent:  { ru: "Задача на удаление «{name}» отправлена", en: "Removal task for \"{name}\" sent" },
   migrationHeading:    { ru: "Импортировано из MDM", en: "Imported from MDM" },
   migrationSource:     { ru: "Источник", en: "Source" },
   migrationBatch:      { ru: "Партия", en: "Batch" },
@@ -172,6 +178,7 @@ export default function DeviceDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { isAdmin } = useMe()
+  const { caps } = useCapabilities()
   const [device, setDevice] = useState<Device | null>(null)
   const [software, setSoftware] = useState<Software[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
@@ -201,6 +208,19 @@ export default function DeviceDetail() {
   const [locking, setLocking] = useState(false)
   const [lockPassword, setLockPassword] = useState<string | null>(null)
   const [migration, setMigration] = useState<MigrationRosterEntry | null>(null)
+  const [removeTarget, setRemoveTarget] = useState<Software | null>(null)
+
+  // submitRemove ставит задачу тихой деинсталляции ПО (enterprise-фича за лицензией).
+  async function submitRemove(s: Software) {
+    try {
+      await api.post(`/devices/${id}/software/remove`, { name: s.name, version: s.version })
+      toast({ title: t(M.removeSoftwareSent, { name: s.name }), variant: "success" })
+    } catch {
+      // авто-тост интерцептора: 402 «requires Enterprise license» / 409 «not active» и т.п.
+    } finally {
+      setRemoveTarget(null)
+    }
+  }
   const [lockCopied, setLockCopied] = useState(false)
 
   useEffect(() => {
@@ -854,12 +874,36 @@ export default function DeviceDetail() {
                 className="flex items-center justify-between gap-4 border-t border-border px-5 py-3 last:rounded-b-2xl"
               >
                 <span className="text-sm font-medium text-foreground truncate">{s.name}</span>
-                <span className="text-xs text-muted-foreground flex-shrink-0">{s.version}</span>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className="text-xs text-muted-foreground">{s.version}</span>
+                  {/* Удаление ПО — enterprise-фича: кнопка только если лицензия её включает
+                      (caps.software_removal; в open-core /capabilities=404 → false) и админ. */}
+                  {isAdmin && caps.software_removal && (
+                    <button
+                      type="button"
+                      aria-label={t(M.removeSoftwareAria, { name: s.name })}
+                      className="text-muted-foreground hover:text-destructive transition-colors"
+                      onClick={() => setRemoveTarget(s)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!removeTarget}
+        onOpenChange={(o) => !o && setRemoveTarget(null)}
+        title={t(M.removeSoftwareTitle)}
+        description={removeTarget ? t(M.removeSoftwareDesc, { name: removeTarget.name, host: device?.hostname ?? "" }) : ""}
+        confirmLabel={t(M.removeSoftwareBtn)}
+        destructive
+        onConfirm={() => { if (removeTarget) submitRemove(removeTarget) }}
+      />
 
       {/* Просмотр обращения за помощью (кнопки закрытия — на странице «Обращения») */}
       <Dialog open={!!helpReq} onOpenChange={(o) => !o && setHelpReq(null)}>

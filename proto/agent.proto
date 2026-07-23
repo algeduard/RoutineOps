@@ -116,6 +116,7 @@ message Task {
   LockCommand lock = 6; // если задано — это команда блокировки устройства, а не скрипт
   DecommissionCommand decommission = 7; // если задано — полное самоудаление агента, а не скрипт/лок
   RemoteDesktopCommand remote_desktop = 8; // если задано — команда сессии удалённого рабочего стола
+  RemoveSoftwareCommand remove_software = 9; // если задано — тихая деинсталляция ПО (enterprise)
 }
 
 // RemoteDesktopCommand — управление сессией удалённого рабочего стола. Едет в Task
@@ -157,6 +158,18 @@ enum RemoteDesktopAction {
 message DecommissionCommand {
   string request_id = 1; // id заявки (идемпотентность/аудит; сервер приравнивает к task_id)
   string reason     = 2; // причина списания (для аудита)
+}
+
+// RemoveSoftwareCommand — тихая деинсталляция установленного ПО (enterprise-фича «удаление
+// ПО из интерфейса»). Едет в Task поверх Connect-стрима (переиспользует доставку/ack/
+// идемпотентность, как lock/decommission). Агент ищет продукт в реестре Uninstall по
+// DisplayName (== name), берёт QuietUninstallString (иначе UninstallString) и запускает
+// его тихо; результат — обычным ReportTaskResult (SUCCESS/ERROR по коду выхода). name —
+// точное DisplayName из инвентаря (ReportInventory), version — для сверки/аудита.
+message RemoveSoftwareCommand {
+  string request_id = 1; // id заявки (= task_id; идемпотентность/аудит)
+  string name       = 2; // точное DisplayName продукта (как в инвентаре)
+  string version    = 3;  // версия из инвентаря (сверка/аудит; агент матчит по name)
 }
 
 // LockCommand — блокировка/разблокировка машины сотрудника (нарушение ИБ/увольнение:

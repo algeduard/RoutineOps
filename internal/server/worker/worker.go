@@ -138,6 +138,13 @@ func (h *Handler) ProcessTask(ctx context.Context, t *asynq.Task) error {
 			Reason:    "устройство выведено из эксплуатации администратором",
 		}
 	}
+	if task.TaskType == "remove_software" {
+		pbTask.RemoveSoftware = &pb.RemoveSoftwareCommand{
+			RequestId: task.ID,
+			Name:      task.SoftwareName,
+			Version:   task.SoftwareVersion,
+		}
+	}
 	sent := h.registry.Send(cn, pbTask)
 	if !sent {
 		return fmt.Errorf("send to device %s failed, will retry", cn)
