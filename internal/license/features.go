@@ -18,4 +18,7 @@ const (
 	FeatureCompliance = "compliance"
 	// FeatureCVEScan — сканирование инвентаря ПО на известные уязвимости (CVE).
 	FeatureCVEScan = "cve_scan"
+	// FeatureMultitenancy — модель тенантов (арендаторов) и привязка устройств/пользователей
+	// к ним. MVP: управление + назначение; полная per-query изоляция данных — follow-up.
+	FeatureMultitenancy = "multitenancy"
 )

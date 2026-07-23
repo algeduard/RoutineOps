@@ -79,6 +79,8 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 		api.WithAdminRoutes(api.ComplianceRoutes(mgr)),
 		// Сканирование инвентаря ПО на уязвимости (CVE): фид + матчинг + находки.
 		api.WithAdminRoutes(api.CVERoutes(mgr)),
+		// Мультитенантность (MVP): CRUD тенантов + назначение устройств/юзеров тенанту.
+		api.WithAdminRoutes(api.TenantsRoutes(mgr)),
 		// /capabilities — какие enterprise-фичи активны (веб гейтит по ним UI). Все роли.
 		api.WithRoutes(api.CapabilitiesRoutes(mgr)),
 	}

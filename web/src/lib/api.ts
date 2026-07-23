@@ -206,6 +206,7 @@ export interface Capabilities {
   sso: boolean
   compliance: boolean
   cve_scan: boolean
+  multitenancy: boolean
 }
 
 // ComplianceCheck — одна проверка соответствия в отчёте (GET /compliance/report,
@@ -267,6 +268,19 @@ export interface CVESummary {
   feed_count: number
   by_severity: CVESeverityCount[]
   by_device: CVEDeviceCount[]
+}
+
+// Tenant — арендатор (GET/POST/PATCH/DELETE /tenants, enterprise; в open-core роутов нет →
+// 404). device_count/user_count — привязанные сущности (приходят в списке). is_default помечает
+// неудаляемый default-тенант, в который бэкфилены существующие устройства/пользователи.
+export interface Tenant {
+  id: string
+  name: string
+  slug: string
+  created_at: string
+  is_default: boolean
+  device_count: number
+  user_count: number
 }
 
 // AuditIntegrity — результат проверки целостности журнала аудита (GET /audit-log/verify,

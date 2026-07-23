@@ -24,6 +24,7 @@ func TestEnterpriseRoutesAbsentWithoutOptions(t *testing.T) {
 		{http.MethodGet, "/api/v1/siem/config", nil},
 		{http.MethodGet, "/api/v1/audit-log/verify", nil},
 		{http.MethodGet, "/api/v1/cve/findings", nil},
+		{http.MethodGet, "/api/v1/tenants", nil},
 	} {
 		w := authedDo(t, rtr, tc.method, tc.path, tc.body, token)
 		if w.Code != http.StatusNotFound {

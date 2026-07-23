@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom"
-import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy, ArrowRightLeft, Share2, ClipboardCheck, ShieldAlert } from "lucide-react"
+import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy, ArrowRightLeft, Share2, ClipboardCheck, ShieldAlert, Building2 } from "lucide-react"
 import { logout } from "@/lib/auth"
 import { RoutineOpsLogo } from "@/components/RoutineOpsLogo"
 import { useMe } from "@/lib/useMe"
@@ -34,6 +34,7 @@ const M = {
   navLicense: { ru: "Лицензия", en: "License" },
   navSiem: { ru: "SIEM-экспорт", en: "SIEM export" },
   navCompliance: { ru: "Соответствие", en: "Compliance" },
+  navTenants: { ru: "Тенанты", en: "Tenants" },
   secHosts: { ru: "Хосты", en: "Hosts" },
   secManagement: { ru: "Управление", en: "Management" },
   secSettings: { ru: "Настройки", en: "Settings" },
@@ -184,6 +185,7 @@ export default function Layout() {
         // /capabilities=404 → caps.siem_export=false → пункт скрыт, а не битый роут).
         { to: "/siem", label: t(M.navSiem), icon: Share2, badge: 0, adminOnly: true, cap: "siem_export" },
         { to: "/compliance", label: t(M.navCompliance), icon: ClipboardCheck, badge: 0, adminOnly: true, cap: "compliance" },
+        { to: "/tenants", label: t(M.navTenants), icon: Building2, badge: 0, adminOnly: true, cap: "multitenancy" },
       ],
     },
   ]
