@@ -8,6 +8,7 @@ import (
 
 type AuditEntry struct {
 	ID         string          `json:"id"`
+	Seq        int64           `json:"seq,omitempty"` // монотонный курсор (миграция 042); 0 в UI-списке, >0 в SIEM-экспорте
 	UserID     *string         `json:"user_id"`
 	UserEmail  string          `json:"user_email"`
 	Action     string          `json:"action"`

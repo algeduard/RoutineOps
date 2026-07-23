@@ -10,6 +10,7 @@ import (
 	"github.com/Floodww/RoutineOps/internal/license"
 	"github.com/Floodww/RoutineOps/internal/server/api"
 	"github.com/Floodww/RoutineOps/internal/server/gateway"
+	"github.com/Floodww/RoutineOps/internal/server/siem"
 	"github.com/Floodww/RoutineOps/internal/server/storage"
 )
 
@@ -27,7 +28,7 @@ func runEnterpriseCLI() bool { return false }
 // enterpriseSetup поднимает лицензионное ядро и монтирует /license (через WithAdminRoutes).
 // Роут ставится ВСЕГДА в enterprise-сборке (даже без корня доверия): GET /license тогда
 // вернёт «не задана», а не 404 — так UI отличает enterprise-без-лицензии от open-core.
-func enterpriseSetup(_ *gateway.Gateway, _ *storage.DB, logger *slog.Logger) []api.RouterOption {
+func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger) []api.RouterOption {
 	pub, err := license.PubKey()
 	if err != nil {
 		logger.Error("публичный ключ лицензий не разобран — лицензирование выключено", "err", err)
@@ -49,6 +50,11 @@ func enterpriseSetup(_ *gateway.Gateway, _ *storage.DB, logger *slog.Logger) []a
 	mgr := license.NewManager(pub, grace, os.Getenv("ROUTINEOPS_LICENSE_FILE"))
 	mgr.LoadInitial(os.Getenv("ROUTINEOPS_LICENSE"), os.Getenv("ROUTINEOPS_LICENSE_PASSWORD"), logger)
 
+	// Фоновый форвардер аудита в SIEM (за лицензией FeatureSIEMExport). Тик молча пустой,
+	// пока лицензия не покрывает фичу или экспорт не включён/не настроен. Живёт до конца
+	// процесса, как прочие фоновые циклы cmd/server.
+	go siem.NewExporter(db, func() bool { return mgr.Has(license.FeatureSIEMExport) }, logger).Run()
+
 	// FileVault recovery-escrow (ESCROW_*) — отдельная enterprise-фича, в этом форке ещё
 	// не реализована; молчание выглядело бы как «эскроу включён».
 	if os.Getenv("ESCROW_RECIPIENT") != "" || os.Getenv("ESCROW_RECIPIENT_FPR") != "" {
@@ -59,6 +65,8 @@ func enterpriseSetup(_ *gateway.Gateway, _ *storage.DB, logger *slog.Logger) []a
 		api.WithAdminRoutes(api.LicenseRoutes(mgr)),
 		// Удаление ПО из интерфейса — enterprise-фича за лицензией (mgr.Has внутри хендлера).
 		api.WithAdminRoutes(api.SoftwareRemovalRoutes(mgr)),
+		// Настройка SIEM-экспорта аудита (форвардинг делает фоновый экспортёр выше).
+		api.WithAdminRoutes(api.SIEMConfigRoutes(mgr)),
 		// /capabilities — какие enterprise-фичи активны (веб гейтит по ним UI). Все роли.
 		api.WithRoutes(api.CapabilitiesRoutes(mgr)),
 	}

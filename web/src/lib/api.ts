@@ -201,6 +201,16 @@ export interface MigrationRosterResponse {
 // в open-core роута нет → 404, веб трактует всё как false). Ключи = константы фич сервера.
 export interface Capabilities {
   software_removal: boolean
+  siem_export: boolean
+}
+
+// SIEMExportConfig — настройка форвардинга аудита в SIEM (GET/POST /siem/config, enterprise).
+// Секрет наружу не отдаётся: has_secret говорит лишь, задан ли он.
+export interface SIEMExportConfig {
+  enabled: boolean
+  webhook_url: string
+  has_secret: boolean
+  updated_at: string
 }
 
 export interface DeviceDetailResponse {

@@ -8,4 +8,6 @@ package license
 const (
 	// FeatureSoftwareRemoval — удаление установленного ПО с устройства из интерфейса.
 	FeatureSoftwareRemoval = "software_removal"
+	// FeatureSIEMExport — форвардинг событий аудита во внешний SIEM (webhook).
+	FeatureSIEMExport = "siem_export"
 )

@@ -24,6 +24,7 @@ import Groups from "@/pages/Groups"
 import AuditLog from "@/pages/AuditLog"
 import Users from "@/pages/Users"
 import License from "@/pages/License"
+import SiemExport from "@/pages/SiemExport"
 import Profile from "@/pages/Profile"
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -74,6 +75,7 @@ export default function App() {
           <Route path="audit-log" element={<AuditLog />} />
           <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
           <Route path="license" element={<AdminRoute><License /></AdminRoute>} />
+          <Route path="siem" element={<AdminRoute><SiemExport /></AdminRoute>} />
           <Route path="profile" element={<Profile />} />
         </Route>
       </Routes>

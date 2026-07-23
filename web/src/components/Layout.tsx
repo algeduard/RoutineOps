@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react"
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom"
-import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy, ArrowRightLeft } from "lucide-react"
+import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy, ArrowRightLeft, Share2 } from "lucide-react"
 import { logout } from "@/lib/auth"
 import { RoutineOpsLogo } from "@/components/RoutineOpsLogo"
 import { useMe } from "@/lib/useMe"
+import { useCapabilities } from "@/lib/useCapabilities"
+import type { Capabilities } from "@/lib/api"
 import { useTheme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import api from "@/lib/api"
@@ -29,6 +31,7 @@ const M = {
   navProfile: { ru: "Профиль", en: "Profile" },
   navUsers: { ru: "Пользователи", en: "Users" },
   navLicense: { ru: "Лицензия", en: "License" },
+  navSiem: { ru: "SIEM-экспорт", en: "SIEM export" },
   secHosts: { ru: "Хосты", en: "Hosts" },
   secManagement: { ru: "Управление", en: "Management" },
   secSettings: { ru: "Настройки", en: "Settings" },
@@ -62,6 +65,7 @@ export default function Layout() {
   const location = useLocation()
   const { theme, toggleTheme } = useTheme()
   const { isAdmin, me } = useMe()
+  const { caps } = useCapabilities()
   const [pendingCount, setPendingCount] = useState(0)
   const [queueCount, setQueueCount] = useState(0)
   const [helpCount, setHelpCount] = useState(0)
@@ -172,10 +176,20 @@ export default function Layout() {
         { to: "/profile", label: t(M.navProfile), icon: UserCircle, badge: 0, adminOnly: false },
         { to: "/users", label: t(M.navUsers), icon: Users, badge: 0, adminOnly: true },
         { to: "/license", label: t(M.navLicense), icon: BadgeCheck, badge: 0, adminOnly: true },
+        // cap: пункт enterprise-фичи — виден, только если лицензия её включает (в open-core
+        // /capabilities=404 → caps.siem_export=false → пункт скрыт, а не битый роут).
+        { to: "/siem", label: t(M.navSiem), icon: Share2, badge: 0, adminOnly: true, cap: "siem_export" },
       ],
     },
   ]
-    .map((s) => ({ ...s, items: s.items.filter((i) => !i.adminOnly || isAdmin) }))
+    .map((s) => ({
+      ...s,
+      items: s.items.filter((i) => {
+        if (i.adminOnly && !isAdmin) return false
+        const cap = (i as { cap?: keyof Capabilities }).cap
+        return !cap || caps[cap]
+      }),
+    }))
     // У viewer «Управление» пустеет целиком — заголовок без пунктов не рисуем.
     .filter((s) => s.items.length > 0)
 
