@@ -1072,6 +1072,7 @@ func (db *DB) CreateAlert(ctx context.Context, deviceID, alertType, details, adm
 	if adminAccessRequestID != "" {
 		adminReqID = &adminAccessRequestID
 	}
+	severity := severityForAlertType(alertType)
 	// admin_access_request_id приходит из payload агента и НЕ проверен на владельца:
 	// устройство A могло прислать заявку устройства B. Линкуем только заявку, реально
 	// принадлежащую отправителю — иначе A закрепляет за собой FK на чужую заявку, и
@@ -1079,15 +1080,15 @@ func (db *DB) CreateAlert(ctx context.Context, deviceID, alertType, details, adm
 	// а оператор получает ложное «device has escrow». Чужой/битый id молча становится
 	// NULL: ack-контракт (accept-and-drop) цел, событие сохраняется без ложной привязки.
 	tag, err := db.pool.Exec(ctx, `
-  INSERT INTO alerts (device_id, alert_type, details, admin_access_request_id)
-  SELECT $1::uuid, $2::text, $3::text,
+  INSERT INTO alerts (device_id, alert_type, details, severity, admin_access_request_id)
+  SELECT $1::uuid, $2::text, $3::text, $5::text,
     (SELECT r.id FROM admin_access_requests r WHERE r.id = $4::uuid AND r.device_id = $1::uuid)
   WHERE NOT EXISTS (
     SELECT 1 FROM alerts a
     WHERE a.device_id = $1::uuid AND a.alert_type = $2::text
       AND a.details = $3::text AND a.acknowledged_at IS NULL
   )
- `, deviceID, alertType, details, adminReqID)
+ `, deviceID, alertType, details, adminReqID, severity)
 	// 23503 = устройство/заявка удалены (гонка с удалением или retention-чисткой)
 	// до доставки события — тот же терминальный класс, что и в SaveScriptResult.
 	if err != nil {
@@ -1097,18 +1098,34 @@ func (db *DB) CreateAlert(ctx context.Context, deviceID, alertType, details, adm
 }
 
 type Alert struct {
-	ID             string     `json:"id"`
-	DeviceID       string     `json:"device_id"`
-	DeviceHostname string     `json:"device_hostname"`
-	AlertType      string     `json:"alert_type"`
+	ID             string `json:"id"`
+	DeviceID       string `json:"device_id"`
+	DeviceHostname string `json:"device_hostname"`
+	AlertType      string `json:"alert_type"`
+	// Severity — уровень критичности (info|warning|critical). Отдаётся в /alerts (бейдж
+	// в UI) и служит порогом маршрутизации (severity >= правило.min_severity).
+	Severity       string     `json:"severity"`
 	Details        string     `json:"details"`
 	CreatedAt      time.Time  `json:"created_at"`
 	AcknowledgedAt *time.Time `json:"acknowledged_at"`
 }
 
+// severityForAlertType выводит разумный уровень критичности по типу алерта при создании.
+// Нарушения политики ПО (запрещённый софт, неавторизованная установка) — critical; прочее
+// (недоступность агента, изменение настроек, неизвестные типы) — warning. Значение
+// используется маршрутизацией алертов (severity >= правило.min_severity).
+func severityForAlertType(alertType string) string {
+	switch alertType {
+	case "forbidden_software", "unauthorized_install":
+		return "critical"
+	default:
+		return "warning"
+	}
+}
+
 func (db *DB) ListAlerts(ctx context.Context, deviceID string, limit int) ([]Alert, error) {
 	query := `
-  SELECT a.id, a.device_id, COALESCE(d.hostname, ''), a.alert_type, a.details, a.created_at, a.acknowledged_at
+  SELECT a.id, a.device_id, COALESCE(d.hostname, ''), a.alert_type, a.severity, a.details, a.created_at, a.acknowledged_at
   FROM alerts a
   LEFT JOIN devices d ON d.id = a.device_id`
 	// Непринятые ПЕРВЫМИ: фронт тянет один список и фильтрует «новые» клиентски, поэтому
@@ -1132,7 +1149,7 @@ func (db *DB) ListAlerts(ctx context.Context, deviceID string, limit int) ([]Ale
 	var alerts []Alert
 	for rows.Next() {
 		var a Alert
-		if err := rows.Scan(&a.ID, &a.DeviceID, &a.DeviceHostname, &a.AlertType, &a.Details, &a.CreatedAt, &a.AcknowledgedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.DeviceID, &a.DeviceHostname, &a.AlertType, &a.Severity, &a.Details, &a.CreatedAt, &a.AcknowledgedAt); err != nil {
 			return nil, err
 		}
 		alerts = append(alerts, a)

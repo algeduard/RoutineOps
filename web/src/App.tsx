@@ -29,6 +29,7 @@ import Compliance from "@/pages/Compliance"
 import Cve from "@/pages/Cve"
 import Tenants from "@/pages/Tenants"
 import Scim from "@/pages/Scim"
+import AlertRouting from "@/pages/AlertRouting"
 import Profile from "@/pages/Profile"
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -84,6 +85,7 @@ export default function App() {
           <Route path="cve" element={<AdminRoute><Cve /></AdminRoute>} />
           <Route path="tenants" element={<AdminRoute><Tenants /></AdminRoute>} />
           <Route path="scim" element={<AdminRoute><Scim /></AdminRoute>} />
+          <Route path="alert-routing" element={<AdminRoute><AlertRouting /></AdminRoute>} />
           <Route path="profile" element={<Profile />} />
         </Route>
       </Routes>

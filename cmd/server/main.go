@@ -146,11 +146,17 @@ func main() {
 	// NotifyITAdmins падает с nil-ресивером (полевой инцидент 2026-06-29).
 	var tgBot gateway.Notifier
 	var tgUsername func(context.Context) string
+	// tgSend — адресная доставка в конкретный telegram-чат (маршрутизация алертов по
+	// правилам). nil, если бот не сконфигурён: enterprise-маршрутизатор тогда молча
+	// пропускает telegram-канал. Метод-значение bound к конкретному боту, поэтому
+	// typed-nil из if-блока не утекает (см. коммент про NotifyITAdmins ниже).
+	var tgSend func(context.Context, string, string) error
 	if cfg.TelegramBotToken != "" {
 		bot := notifier.New(cfg.TelegramBotToken, db, logger)
 		go bot.StartPolling(ctx)
 		tgBot = bot
 		tgUsername = bot.Username
+		tgSend = bot.SendToChat
 		logger.Info("telegram bot started")
 	}
 
@@ -176,7 +182,7 @@ func main() {
 	// Enterprise-оверлей (//go:build enterprise) регистрирует escrow-сервис на g и
 	// возвращает RouterOptions (WithLockModePolicy + /escrow/status). Open-core: nil →
 	// escrow Unimplemented, lock mode=filevault → 409. См. enterprise{,_stub}.go.
-	routerOpts := enterpriseSetup(g, db, logger, cfg.PublicWebURL, cfg.CookieSecure)
+	routerOpts := enterpriseSetup(g, db, logger, cfg.PublicWebURL, cfg.CookieSecure, tgSend)
 	routerOpts = append(routerOpts, api.WithReleasePubKey(cfg.ReleasePubKey))
 	routerOpts = append(routerOpts, api.WithRemoteDesktop(reg, rdBridge))
 	if tgUsername != nil {

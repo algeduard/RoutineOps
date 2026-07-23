@@ -146,6 +146,23 @@ func (b *Bot) send(chatID int64, text string) error {
 	return nil
 }
 
+// SendToChat отправляет сообщение в КОНКРЕТНЫЙ чат по chat_id — для адресной доставки
+// алертов по правилам маршрутизации (в отличие от NotifyITAdmins, который рассылает всем
+// привязанным админам). chatID — строковый (как хранится в БД), парсится в int64 (у групп
+// он отрицательный). Nil-ресивер (бот не сконфигурён) безопасен: возвращает ошибку, а не
+// паникует — маршрутизатор её логирует и продолжает (best-effort). ctx оставлен для
+// единообразия сигнатуры; сам send работает на клиенте с собственным таймаутом.
+func (b *Bot) SendToChat(_ context.Context, chatID, text string) error {
+	if b == nil {
+		return fmt.Errorf("telegram bot not configured")
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(chatID), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid telegram chat_id %q", chatID)
+	}
+	return b.send(id, text)
+}
+
 // NotifyITAdmins sends a message to all IT admins with a linked Telegram account.
 // Runs synchronously — call with `go` if you don't want to block.
 func (b *Bot) NotifyITAdmins(ctx context.Context, text string) {

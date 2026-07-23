@@ -23,4 +23,7 @@ const (
 	FeatureMultitenancy = "multitenancy"
 	// FeatureSCIM — provisioning юзеров из IdP по SCIM 2.0 (Okta/Azure AD/OneLogin).
 	FeatureSCIM = "scim"
+	// FeatureAlertRouting — маршрутизация алертов по уровню критичности (эскалация,
+	// доставка в telegram/webhook по правилам).
+	FeatureAlertRouting = "alert_routing"
 )

@@ -24,6 +24,18 @@ const alertTypeColor: Record<string, string> = {
   agent_unreachable:            "text-blue-600 dark:text-blue-500",
 }
 
+// severityMeta — подпись и цвет бейджа уровня критичности (миграция 048). Неизвестное/
+// отсутствующее значение трактуем как warning (как DEFAULT колонки severity на сервере).
+const severityMeta: Record<string, { label: Msg; className: string }> = {
+  critical: { label: { ru: "Критический", en: "Critical" }, className: "border-red-500/20 bg-red-500/15 text-red-700 dark:border-red-400/25 dark:bg-red-400/15 dark:text-red-300" },
+  warning:  { label: { ru: "Важный", en: "Warning" }, className: "border-amber-500/20 bg-amber-500/15 text-amber-800 dark:border-amber-400/25 dark:bg-amber-400/15 dark:text-amber-300" },
+  info:     { label: { ru: "Инфо", en: "Info" }, className: "border-blue-500/20 bg-blue-500/15 text-blue-700 dark:border-blue-400/25 dark:bg-blue-400/15 dark:text-blue-300" },
+}
+
+function severityFor(a: Alert) {
+  return severityMeta[a.severity ?? "warning"] ?? severityMeta.warning
+}
+
 // TYPE_ORDER — порядок секций. Типы вне списка (сервер хранит alert_type свободным
 // TEXT, без enum) уезжают в конец по алфавиту, а не пропадают.
 const TYPE_ORDER = [
@@ -68,6 +80,7 @@ const M = {
   device: { ru: "Устройство", en: "Device" },
   created: { ru: "Создан", en: "Created" },
   status: { ru: "Статус", en: "Status" },
+  severity: { ru: "Критичность", en: "Severity" },
   details: { ru: "Детали", en: "Details" },
   acking: { ru: "Принятие...", en: "Acknowledging..." },
   ackAlert: { ru: "Принять алерт", en: "Acknowledge alert" },
@@ -211,6 +224,9 @@ export default function Alerts() {
                       <p className="truncate text-xs text-soft">{a.details || "—"}</p>
                     </div>
                     <div className="ml-4 flex flex-shrink-0 items-center gap-3">
+                      <span className={`hidden rounded-md border px-2 py-0.5 text-xs font-semibold sm:inline-flex ${severityFor(a).className}`}>
+                        {t(severityFor(a).label)}
+                      </span>
                       <span className="hidden whitespace-nowrap text-xs text-muted-foreground sm:block">
                         {formatDistanceToNow(a.created_at)}
                       </span>
@@ -265,6 +281,12 @@ export default function Alerts() {
                   ) : (
                     <Badge variant="destructive">{t(M.new)}</Badge>
                   )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">{t(M.severity)}</p>
+                  <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-semibold ${severityFor(selectedAlert).className}`}>
+                    {t(severityFor(selectedAlert).label)}
+                  </span>
                 </div>
               </div>
 

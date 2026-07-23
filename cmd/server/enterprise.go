@@ -3,11 +3,13 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"time"
 
 	"github.com/Floodww/RoutineOps/internal/license"
+	"github.com/Floodww/RoutineOps/internal/server/alertrouting"
 	"github.com/Floodww/RoutineOps/internal/server/api"
 	"github.com/Floodww/RoutineOps/internal/server/gateway"
 	"github.com/Floodww/RoutineOps/internal/server/siem"
@@ -28,7 +30,7 @@ func runEnterpriseCLI() bool { return false }
 // enterpriseSetup поднимает лицензионное ядро и монтирует /license (через WithAdminRoutes).
 // Роут ставится ВСЕГДА в enterprise-сборке (даже без корня доверия): GET /license тогда
 // вернёт «не задана», а не 404 — так UI отличает enterprise-без-лицензии от open-core.
-func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, publicWebURL string, cookieSecure bool) []api.RouterOption {
+func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, publicWebURL string, cookieSecure bool, tgSend func(context.Context, string, string) error) []api.RouterOption {
 	pub, err := license.PubKey()
 	if err != nil {
 		logger.Error("публичный ключ лицензий не разобран — лицензирование выключено", "err", err)
@@ -54,6 +56,12 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 	// пока лицензия не покрывает фичу или экспорт не включён/не настроен. Живёт до конца
 	// процесса, как прочие фоновые циклы cmd/server.
 	go siem.NewExporter(db, func() bool { return mgr.Has(license.FeatureSIEMExport) }, logger).Run()
+
+	// Фоновый маршрутизатор алертов (за лицензией FeatureAlertRouting). Поллит новые алерты,
+	// доставляет по правилам severity→канал и эскалирует непринятые critical. Тик молча
+	// пустой, пока лицензия не покрывает фичу. tgSend — адресная доставка в telegram-чат
+	// (nil, если бот не сконфигурён → telegram-канал пропускается).
+	go alertrouting.NewRouter(db, func() bool { return mgr.Has(license.FeatureAlertRouting) }, tgSend, logger).Run()
 
 	// FileVault recovery-escrow (ESCROW_*) — отдельная enterprise-фича, в этом форке ещё
 	// не реализована; молчание выглядело бы как «эскроу включён».
@@ -89,6 +97,8 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 		api.WithAdminRoutes(api.CVERoutes(mgr)),
 		// Мультитенантность (MVP): CRUD тенантов + назначение устройств/юзеров тенанту.
 		api.WithAdminRoutes(api.TenantsRoutes(mgr)),
+		// Правила маршрутизации алертов (доставку по ним делает фоновый маршрутизатор выше).
+		api.WithAdminRoutes(api.AlertRoutingRoutes(mgr)),
 		// /capabilities — какие enterprise-фичи активны (веб гейтит по ним UI). Все роли.
 		api.WithRoutes(api.CapabilitiesRoutes(mgr)),
 	}

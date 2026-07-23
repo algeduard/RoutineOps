@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
@@ -18,7 +19,7 @@ func registerEnterpriseFlags() {}
 
 func runEnterpriseCLI() bool { return false }
 
-func enterpriseSetup(_ *gateway.Gateway, _ *storage.DB, logger *slog.Logger, _ string, _ bool) []api.RouterOption {
+func enterpriseSetup(_ *gateway.Gateway, _ *storage.DB, logger *slog.Logger, _ string, _ bool, _ func(context.Context, string, string) error) []api.RouterOption {
 	// Оператор задал ESCROW_* на open-core-бинаре — фичи тут физически нет; молчание
 	// выглядело бы как «эскроу включён». Предупредить, но стартовать (fail-closed).
 	if os.Getenv("ESCROW_RECIPIENT") != "" || os.Getenv("ESCROW_RECIPIENT_FPR") != "" {

@@ -208,6 +208,7 @@ export interface Capabilities {
   cve_scan: boolean
   multitenancy: boolean
   scim: boolean
+  alert_routing: boolean
 }
 
 // ComplianceCheck — одна проверка соответствия в отчёте (GET /compliance/report,
@@ -336,14 +337,33 @@ export interface Task {
   created_at: string
 }
 
+// Уровень критичности алерта (миграция 048). Порог маршрутизации и цвет бейджа в UI.
+export type AlertSeverity = "info" | "warning" | "critical"
+
 export interface Alert {
   id: string
   device_id: string
   device_hostname: string
   alert_type: string
+  // severity может отсутствовать у сервера старой версии — трактуем как warning.
+  severity?: AlertSeverity
   details: string
   created_at: string
   acknowledged_at: string | null
+}
+
+// AlertRoutingRule — правило маршрутизации алертов (GET/POST/DELETE /alert-routing-rules,
+// enterprise). Алерт с severity >= min_severity доставляется в channel/target. target —
+// chat_id (telegram) либо http(s)-URL (webhook). escalate_after_minutes>0 включает эскалацию
+// непринятых critical-алертов старше порога.
+export interface AlertRoutingRule {
+  id: string
+  min_severity: AlertSeverity
+  channel: "telegram" | "webhook"
+  target: string
+  enabled: boolean
+  escalate_after_minutes: number
+  created_at: string
 }
 
 export interface AdminAccessRequest {
