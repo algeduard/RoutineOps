@@ -20,6 +20,7 @@ func CapabilitiesRoutes(mgr *license.Manager) func(*Handler, chi.Router) {
 			writeJSON(w, http.StatusOK, map[string]bool{
 				license.FeatureSoftwareRemoval: mgr.Has(license.FeatureSoftwareRemoval),
 				license.FeatureSIEMExport:      mgr.Has(license.FeatureSIEMExport),
+				license.FeatureAuditIntegrity:  mgr.Has(license.FeatureAuditIntegrity),
 			})
 		})
 	}

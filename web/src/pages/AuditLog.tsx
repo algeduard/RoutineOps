@@ -1,9 +1,13 @@
 import { useEffect, useState, type ElementType, type CSSProperties } from "react"
-import { Monitor, FileCode2, ShieldAlert, KeyRound, UserCog } from "lucide-react"
-import api from "@/lib/api"
+import { Monitor, FileCode2, ShieldAlert, KeyRound, UserCog, ShieldCheck } from "lucide-react"
+import api, { AuditIntegrity } from "@/lib/api"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { Button } from "@/components/ui/button"
+import { toast } from "@/lib/toast"
+import { useMe } from "@/lib/useMe"
+import { useCapabilities } from "@/lib/useCapabilities"
 import { useT, type Msg } from "@/lib/i18n"
 
 const M = {
@@ -18,6 +22,16 @@ const M = {
   events: { ru: "События", en: "Events" },
   showing: { ru: "Показано {shown} из {total}", en: "Showing {shown} of {total}" },
   notFound: { ru: "Ничего не найдено", en: "Nothing found" },
+  verifyBtn: { ru: "Проверить целостность", en: "Verify integrity" },
+  verifying: { ru: "Проверка...", en: "Verifying..." },
+  verifyFail: { ru: "Не удалось проверить", en: "Verification failed" },
+  integrityOk: { ru: "Целостность подтверждена", en: "Integrity verified" },
+  integrityOkDesc: { ru: "Хеш-цепочка сходится, проверено {checked} записей.", en: "Hash chain is intact, {checked} entries verified." },
+  integrityTampered: { ru: "Обнаружено вмешательство!", en: "Tampering detected!" },
+  integrityTamperedDesc: { ru: "Цепочка нарушена начиная с записи #{seq} — журнал был изменён в обход сервера.", en: "The chain breaks at entry #{seq} — the log was modified out of band." },
+  integrityTailDesc: { ru: "Удалены последние записи журнала — голова хеш-цепочки не сходится.", en: "The latest log entries were deleted — the hash-chain head does not match." },
+  integrityUnconfigured: { ru: "Подпись аудита не настроена", en: "Audit signing not configured" },
+  integrityUnconfiguredDesc: { ru: "Задайте ROUTINEOPS_AUDIT_HMAC_KEY на сервере, чтобы новые записи подписывались хеш-цепочкой и проверялись.", en: "Set ROUTINEOPS_AUDIT_HMAC_KEY on the server so new entries are hash-chained and verifiable." },
 }
 
 interface AuditEntry {
@@ -93,6 +107,24 @@ export default function AuditLog() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [who, setWho] = useState("")
+  const { isAdmin } = useMe()
+  const { caps } = useCapabilities()
+  const [integrity, setIntegrity] = useState<AuditIntegrity | null>(null)
+  const [verifying, setVerifying] = useState(false)
+
+  // Проверка целостности журнала (tamper-evidence, enterprise). Пересчитывает подписи на
+  // сервере и сообщает, не менялись ли записи в обход сервера.
+  async function verifyIntegrity() {
+    setVerifying(true)
+    try {
+      const r = await api.get<AuditIntegrity>("/audit-log/verify")
+      setIntegrity(r.data)
+    } catch {
+      toast({ title: t(M.verifyFail), variant: "destructive" })
+    } finally {
+      setVerifying(false)
+    }
+  }
 
   useEffect(() => {
     api.get<AuditEntry[]>("/audit-log?limit=200")
@@ -113,7 +145,34 @@ export default function AuditLog() {
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="text-xl font-semibold text-foreground">{t(M.title)}</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold text-foreground">{t(M.title)}</h1>
+        {/* Проверка целостности — enterprise-фича за лицензией: только админу и когда
+            caps.audit_integrity (в open-core /capabilities=404 → скрыто). */}
+        {isAdmin && caps.audit_integrity && (
+          <Button variant="outline" size="sm" disabled={verifying} onClick={verifyIntegrity}>
+            <ShieldCheck className="h-4 w-4 mr-1.5" />
+            {verifying ? t(M.verifying) : t(M.verifyBtn)}
+          </Button>
+        )}
+      </div>
+
+      {integrity && (
+        <div className={
+          !integrity.configured ? "glass px-5 py-[18px] text-sm text-muted-foreground"
+          : integrity.tampered ? "glass bg-red-500/[0.08] px-5 py-[18px] text-sm text-destructive dark:text-[hsl(0_72%_66%)]"
+          : "glass bg-emerald-500/[0.08] px-5 py-[18px] text-sm text-emerald-700 dark:text-emerald-400"
+        }>
+          {!integrity.configured ? (
+            <><span className="font-semibold">{t(M.integrityUnconfigured)}</span> — {t(M.integrityUnconfiguredDesc)}</>
+          ) : integrity.tampered ? (
+            <><span className="font-semibold">{t(M.integrityTampered)}</span> {integrity.tail_truncated ? t(M.integrityTailDesc) : t(M.integrityTamperedDesc, { seq: integrity.first_tampered_seq })}</>
+          ) : (
+            <><span className="font-semibold">{t(M.integrityOk)}</span> {t(M.integrityOkDesc, { checked: integrity.checked })}</>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <p className="text-sm text-muted-foreground">{t(M.loading)}</p>
       ) : entries.length === 0 ? (

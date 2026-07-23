@@ -202,6 +202,20 @@ export interface MigrationRosterResponse {
 export interface Capabilities {
   software_removal: boolean
   siem_export: boolean
+  audit_integrity: boolean
+}
+
+// AuditIntegrity — результат проверки целостности журнала аудита (GET /audit-log/verify,
+// enterprise; кейд хеш-цепочка). configured=false — подпись не настроена
+// (ROUTINEOPS_AUDIT_HMAC_KEY не задан). tampered — цепочка нарушена (модификация/удаление/
+// вставка) начиная с first_tampered_seq. tail_truncated — удалены последние записи (голова
+// цепочки не сходится).
+export interface AuditIntegrity {
+  configured: boolean
+  checked: number
+  tampered: boolean
+  first_tampered_seq: number
+  tail_truncated: boolean
 }
 
 // SIEMExportConfig — настройка форвардинга аудита в SIEM (GET/POST /siem/config, enterprise).

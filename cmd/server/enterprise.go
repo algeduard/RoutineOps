@@ -67,6 +67,8 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger) []
 		api.WithAdminRoutes(api.SoftwareRemovalRoutes(mgr)),
 		// Настройка SIEM-экспорта аудита (форвардинг делает фоновый экспортёр выше).
 		api.WithAdminRoutes(api.SIEMConfigRoutes(mgr)),
+		// Проверка целостности журнала аудита (tamper-evidence).
+		api.WithAdminRoutes(api.AuditIntegrityRoutes(mgr)),
 		// /capabilities — какие enterprise-фичи активны (веб гейтит по ним UI). Все роли.
 		api.WithRoutes(api.CapabilitiesRoutes(mgr)),
 	}

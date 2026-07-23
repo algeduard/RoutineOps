@@ -10,4 +10,6 @@ const (
 	FeatureSoftwareRemoval = "software_removal"
 	// FeatureSIEMExport — форвардинг событий аудита во внешний SIEM (webhook).
 	FeatureSIEMExport = "siem_export"
+	// FeatureAuditIntegrity — проверка целостности журнала аудита (tamper-evidence).
+	FeatureAuditIntegrity = "audit_integrity"
 )
