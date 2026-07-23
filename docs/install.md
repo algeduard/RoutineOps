@@ -218,6 +218,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 | `REDIS_ADDR` | `localhost:6379` | Адрес Redis. В compose — `redis:6379` |
 | `JWT_SECRET` | `dev-secret-change-in-production` | Корень доверия админ-сессий. `openssl rand -hex 32`. Ротация — [jwt-secret-rotation.md](jwt-secret-rotation.md) |
 | `ROUTINEOPS_MFA_ENC_KEY` | — | Шифрование TOTP-секретов 2FA (AES-256-GCM), 32 байта base64: `openssl rand -base64 32`. Только в env (не в БД), файл `0600`. Задан не на 32 байта → отказ старта. Пусто → MFA нельзя включить (enroll 503). **Потеря ключа не блокирует вход** (recovery-коды и admin-reset MFA его не требуют), но требует переустановки MFA. Нужен NTP: дрейф >30с ломает TOTP |
+| `SSO_ISSUER` / `SSO_CLIENT_ID` / `SSO_CLIENT_SECRET` | — | SSO/OIDC (enterprise, за лицензией `FeatureSSO`). Пусто = SSO выкл. `redirect_uri` сервер выводит из `PUBLIC_WEB_URL`+`/api/v1/auth/sso/callback` — зарегистрируй ровно его у IdP. Опц.: `SSO_ROLE_CLAIM`+`SSO_ADMIN_VALUES` (маппинг роли), `SSO_DEFAULT_ROLE` (дефолт `viewer`), `SSO_ALLOW_JIT` (дефолт true). Матчинг по (issuer, sub), не по email; коллизия email с локальным аккаунтом → отказ линка. См. `.env.prod.example` |
 | `PUBLIC_WEB_URL` | `https://localhost:8081` | Внешний URL сервера. Подставляется в installer-скрипты, ссылки на загрузку и инвайты |
 
 ### Сертификаты

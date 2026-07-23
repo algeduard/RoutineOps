@@ -1,6 +1,8 @@
-import { useState, FormEvent } from "react"
+import { useState, useEffect, FormEvent } from "react"
 import { useNavigate, Link } from "react-router-dom"
+import axios from "axios"
 import { login, loginMfa } from "@/lib/auth"
+import { clearMeCache } from "@/lib/useMe"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,6 +17,12 @@ const M = {
   signingIn: { ru: "Вход...", en: "Signing in..." },
   signIn: { ru: "Войти", en: "Sign in" },
   forgotPassword: { ru: "Забыли пароль?", en: "Forgot password?" },
+  ssoButton: { ru: "Войти через SSO", en: "Sign in with SSO" },
+  or: { ru: "или", en: "or" },
+  ssoLanding: { ru: "Завершаем вход...", en: "Finishing sign-in..." },
+  ssoFailedGeneric: { ru: "Не удалось войти через SSO", en: "SSO sign-in failed" },
+  ssoEmailConflict: { ru: "Аккаунт с этим email уже существует — обратитесь к администратору", en: "An account with this email already exists — contact your administrator" },
+  ssoNoAccount: { ru: "Для этого пользователя нет учётной записи", en: "No account exists for this user" },
   mfaTitle: { ru: "Двухфакторная аутентификация", en: "Two-factor authentication" },
   mfaCode: { ru: "Код из приложения", en: "Authenticator code" },
   mfaCodeHint: { ru: "Введите 6-значный код из приложения-аутентификатора", en: "Enter the 6-digit code from your authenticator app" },
@@ -38,7 +46,42 @@ export default function Login() {
   const [mfaToken, setMfaToken] = useState("")
   const [code, setCode] = useState("")
   const [useRecovery, setUseRecovery] = useState(false)
+  const [ssoEnabled, setSsoEnabled] = useState(false)
+  // ssoLanding: вернулись с успешного SSO-callback (?sso=1) — пробим /me и уходим в app.
+  const [ssoLanding, setSsoLanding] = useState(false)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const ssoErr = params.get("sso_error")
+    if (ssoErr) {
+      setError(
+        ssoErr === "email_conflict" ? t(M.ssoEmailConflict)
+        : ssoErr === "no_account" ? t(M.ssoNoAccount)
+        : t(M.ssoFailedGeneric),
+      )
+    }
+    if (params.get("sso") === "1") {
+      // Сессия уже в httpOnly-куке (её не читает JS). Подтверждаем /me raw-axios (мимо
+      // 401-интерцептора), ставим клиентский маркер и уходим в приложение.
+      setSsoLanding(true)
+      axios.get("/api/v1/me")
+        .then(() => {
+          sessionStorage.setItem("session", "1")
+          clearMeCache()
+          navigate("/", { replace: true })
+        })
+        .catch(() => {
+          setSsoLanding(false)
+          setError(t(M.ssoFailedGeneric))
+        })
+    }
+    // Показывать ли кнопку SSO (страница логина неаутентифицирована — /capabilities ей недоступен).
+    axios.get<{ enabled: boolean }>("/api/v1/auth/sso/status")
+      .then((r) => setSsoEnabled(!!r.data?.enabled))
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -96,7 +139,9 @@ export default function Login() {
           </CardTitle>
         </CardHeader>
         <CardContent className="px-5 pb-6">
-          {!mfaToken ? (
+          {ssoLanding ? (
+            <p className="text-center text-sm text-muted-foreground py-6">{t(M.ssoLanding)}</p>
+          ) : !mfaToken ? (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="email" className="text-soft">Email</Label>
@@ -126,6 +171,23 @@ export default function Login() {
               <Link to="/forgot-password" className="block text-center text-sm text-muted-foreground hover:text-foreground transition-colors">
                 {t(M.forgotPassword)}
               </Link>
+              {ssoEnabled && (
+                <>
+                  <div className="flex items-center gap-3 pt-1">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="text-xs text-muted-foreground">{t(M.or)}</span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => { window.location.href = "/api/v1/auth/sso/login" }}
+                  >
+                    {t(M.ssoButton)}
+                  </Button>
+                </>
+              )}
             </form>
           ) : (
             <form onSubmit={handleMfaSubmit} className="space-y-4">

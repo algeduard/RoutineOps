@@ -176,7 +176,7 @@ func main() {
 	// Enterprise-оверлей (//go:build enterprise) регистрирует escrow-сервис на g и
 	// возвращает RouterOptions (WithLockModePolicy + /escrow/status). Open-core: nil →
 	// escrow Unimplemented, lock mode=filevault → 409. См. enterprise{,_stub}.go.
-	routerOpts := enterpriseSetup(g, db, logger)
+	routerOpts := enterpriseSetup(g, db, logger, cfg.PublicWebURL, cfg.CookieSecure)
 	routerOpts = append(routerOpts, api.WithReleasePubKey(cfg.ReleasePubKey))
 	routerOpts = append(routerOpts, api.WithRemoteDesktop(reg, rdBridge))
 	if tgUsername != nil {
@@ -335,6 +335,12 @@ func main() {
 					logger.Error("cleanup expired mfa challenges", "err", merr)
 				} else if mn > 0 {
 					logger.Info("cleaned up expired mfa challenges", "count", mn)
+				}
+				sn, serr := db.DeleteExpiredSSOFlows(context.Background())
+				if serr != nil {
+					logger.Error("cleanup expired sso flows", "err", serr)
+				} else if sn > 0 {
+					logger.Info("cleaned up expired sso flows", "count", sn)
 				}
 			}
 		}

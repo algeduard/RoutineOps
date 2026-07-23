@@ -41,14 +41,20 @@ type User struct {
 	PasswordHash string    `json:"-"`
 	Role         string    `json:"role"`
 	CreatedAt    time.Time `json:"created_at"`
+	// AuthSource — 'local' (пароль+опц. TOTP) или 'oidc' (внешний IdP, миграция 045).
+	// Для 'oidc' password-login и forgot/reset запрещены.
+	AuthSource string `json:"auth_source"`
+	// OIDCIssuer/OIDCSubject — неизменяемый ключ SSO-идентичности; internal, не в JSON.
+	OIDCIssuer  *string `json:"-"`
+	OIDCSubject *string `json:"-"`
 }
 
 func (db *DB) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	var u User
 	err := db.pool.QueryRow(ctx, `
-		SELECT id, name, email, password_hash, role, created_at
+		SELECT id, name, email, password_hash, role, created_at, auth_source, oidc_issuer, oidc_subject
 		FROM users WHERE email = $1
-	`, email).Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	`, email).Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &u.AuthSource, &u.OIDCIssuer, &u.OIDCSubject)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -2369,8 +2375,9 @@ func (db *DB) attachDeviceGroups(ctx context.Context, devices []Device) error {
 func (db *DB) GetUserByID(ctx context.Context, id string) (*User, error) {
 	var u User
 	err := db.pool.QueryRow(ctx, `
-		SELECT id, name, email, password_hash, role, created_at FROM users WHERE id = $1
-	`, id).Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt)
+		SELECT id, name, email, password_hash, role, created_at, auth_source, oidc_issuer, oidc_subject
+		FROM users WHERE id = $1
+	`, id).Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &u.AuthSource, &u.OIDCIssuer, &u.OIDCSubject)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -2382,7 +2389,8 @@ func (db *DB) GetUserByID(ctx context.Context, id string) (*User, error) {
 
 func (db *DB) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := db.pool.Query(ctx, `
-		SELECT id, name, email, password_hash, role, created_at FROM users ORDER BY created_at
+		SELECT id, name, email, password_hash, role, created_at, auth_source, oidc_issuer, oidc_subject
+		FROM users ORDER BY created_at
 	`)
 	if err != nil {
 		return nil, err
@@ -2391,7 +2399,7 @@ func (db *DB) ListUsers(ctx context.Context) ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &u.AuthSource, &u.OIDCIssuer, &u.OIDCSubject); err != nil {
 			return nil, err
 		}
 		users = append(users, u)

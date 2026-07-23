@@ -256,13 +256,14 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if user == nil {
-		// Выравниваем время с веткой существующего юзера: прогоняем bcrypt по dummy-хешу,
-		// иначе мгновенный ответ (|| короткозамкнёт реальный bcrypt) выдал бы, что email не
-		// зарегистрирован. Результат игнорируем — важна лишь потраченная задержка.
+	if user == nil || user.AuthSource == "oidc" {
+		// Несуществующий ИЛИ SSO-аккаунт (auth_source='oidc', локального пароля нет — вход
+		// только через IdP/IdP-MFA): прогоняем bcrypt по dummy-хешу для выравнивания времени,
+		// иначе мгновенный ответ выдал бы существование/тип аккаунта (timing-оракул).
 		_ = bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password))
 	}
-	if user == nil || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
+	if user == nil || user.AuthSource == "oidc" ||
+		bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
 		h.loginLimiter.fail(acctKey, time.Now())
 		h.audit(r.Context(), "", req.Email, "login_failed", "user", "", nil)
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)

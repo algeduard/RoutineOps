@@ -12,4 +12,6 @@ const (
 	FeatureSIEMExport = "siem_export"
 	// FeatureAuditIntegrity — проверка целостности журнала аудита (tamper-evidence).
 	FeatureAuditIntegrity = "audit_integrity"
+	// FeatureSSO — вход через внешний OIDC-провайдер (SSO).
+	FeatureSSO = "sso"
 )

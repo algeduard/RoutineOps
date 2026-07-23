@@ -28,7 +28,7 @@ func runEnterpriseCLI() bool { return false }
 // enterpriseSetup поднимает лицензионное ядро и монтирует /license (через WithAdminRoutes).
 // Роут ставится ВСЕГДА в enterprise-сборке (даже без корня доверия): GET /license тогда
 // вернёт «не задана», а не 404 — так UI отличает enterprise-без-лицензии от open-core.
-func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger) []api.RouterOption {
+func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, publicWebURL string, cookieSecure bool) []api.RouterOption {
 	pub, err := license.PubKey()
 	if err != nil {
 		logger.Error("публичный ключ лицензий не разобран — лицензирование выключено", "err", err)
@@ -61,7 +61,13 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger) []
 		logger.Warn("ESCROW_* заданы, но FileVault-escrow в этой сборке не реализован — игнорируются")
 	}
 
+	// SSO/OIDC-провайдер (за лицензией FeatureSSO). Конструктор читает SSO_* env, но discovery
+	// ленивый (первый запрос), поэтому недоступный на старте IdP сервер не роняет. Enabled()=
+	// сконфигурирован && лицензия покрывает фичу; иначе публичные /auth/sso/* отдают 404/выкл.
+	ssoProvider := api.NewOIDCProvider(db, mgr, publicWebURL, cookieSecure)
+
 	return []api.RouterOption{
+		api.WithSSO(ssoProvider),
 		api.WithAdminRoutes(api.LicenseRoutes(mgr)),
 		// Удаление ПО из интерфейса — enterprise-фича за лицензией (mgr.Has внутри хендлера).
 		api.WithAdminRoutes(api.SoftwareRemovalRoutes(mgr)),

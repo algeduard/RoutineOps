@@ -203,6 +203,7 @@ export interface Capabilities {
   software_removal: boolean
   siem_export: boolean
   audit_integrity: boolean
+  sso: boolean
 }
 
 // AuditIntegrity — результат проверки целостности журнала аудита (GET /audit-log/verify,

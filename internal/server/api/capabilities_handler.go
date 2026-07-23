@@ -21,6 +21,7 @@ func CapabilitiesRoutes(mgr *license.Manager) func(*Handler, chi.Router) {
 				license.FeatureSoftwareRemoval: mgr.Has(license.FeatureSoftwareRemoval),
 				license.FeatureSIEMExport:      mgr.Has(license.FeatureSIEMExport),
 				license.FeatureAuditIntegrity:  mgr.Has(license.FeatureAuditIntegrity),
+				license.FeatureSSO:             mgr.Has(license.FeatureSSO),
 			})
 		})
 	}

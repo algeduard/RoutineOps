@@ -1,0 +1,21 @@
+# DEV ONLY — локальный Keycloak как OIDC-IdP для проверки SSO. НЕ для продакшена
+# (прод использует реальный IdP; секретов в compose нет). Поднять:
+#   docker compose -f deploy/docker-compose.sso.yml up
+# Импортирует realm 'routineops' (клиент 'routineops', тестовый юзер ssotest@example.com /
+# пароль ssotest, email verified). Admin-консоль: http://localhost:8080 (admin/admin).
+#
+# Затем в .env.dev (enterprise-прогон сервера) раскомментируй SSO_* и собери сервер
+# `-tags enterprise` с лицензией, покрывающей FeatureSSO. redirect_uri сервер выводит из
+# PUBLIC_WEB_URL + /api/v1/auth/sso/callback — realm ниже разрешает localhost:8081 (http/https).
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: routineops-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro

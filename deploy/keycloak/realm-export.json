@@ -1,0 +1,39 @@
+{
+  "realm": "routineops",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "clients": [
+    {
+      "clientId": "routineops",
+      "name": "RoutineOps (dev)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "routineops-dev-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8081/api/v1/auth/sso/callback",
+        "https://localhost:8081/api/v1/auth/sso/callback"
+      ],
+      "webOrigins": ["+"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "ssotest",
+      "enabled": true,
+      "email": "ssotest@example.com",
+      "emailVerified": true,
+      "firstName": "SSO",
+      "lastName": "Test",
+      "credentials": [
+        { "type": "password", "value": "ssotest", "temporary": false }
+      ]
+    }
+  ]
+}

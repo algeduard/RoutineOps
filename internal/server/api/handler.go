@@ -114,6 +114,9 @@ type Handler struct {
 	// WithRemoteDesktop → WebSocket-ручка недоступна. См. remotedesktop_handler.go.
 	registry *registry.Registry
 	rdBridge *remotedesktop.Bridge
+	// sso — OIDC-провайдер (enterprise), ставится через WithSSO. nil в open-core →
+	// публичные /auth/sso/* отдают 404/выкл. См. sso.go.
+	sso SSOProvider
 }
 
 func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *enroll.CASigner, publicWebURL, releasesDir string, m *mailer.Mailer, cookieSecure bool, opts ...RouterOption) http.Handler {
@@ -160,6 +163,11 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 	r.With(httprate.LimitByIP(10, time.Minute)).Post("/api/v1/auth/reset-password", h.resetPassword)
 	r.With(httprate.LimitByIP(10, time.Minute)).Post("/api/v1/auth/accept-invite", h.acceptInvite)
 	r.Get("/api/v1/auth/invite", h.getInvite)
+	// SSO/OIDC — публичные (сессии ещё нет), ВНЕ /api/v1 authed-группы, ДО SPA-wildcard.
+	// Делегируют h.sso (enterprise); в open-core h.sso==nil → login/callback 404, status выкл.
+	r.With(httprate.LimitByIP(10, time.Minute)).Get("/api/v1/auth/sso/login", h.ssoLogin)
+	r.With(httprate.LimitByIP(10, time.Minute)).Get("/api/v1/auth/sso/callback", h.ssoCallback)
+	r.Get("/api/v1/auth/sso/status", h.ssoStatus)
 	r.Post("/api/v1/enroll", h.enroll)
 	r.Get("/api/v1/agent/version", h.agentVersion)
 	r.Get("/api/v1/installer", h.getInstaller)
@@ -1663,7 +1671,10 @@ func (h *Handler) forgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	// Always return 200 to not leak user existence
 	user, _ := h.db.GetUserByEmail(r.Context(), req.Email)
-	if user != nil {
+	// SSO-аккаунты (auth_source='oidc') локального пароля не имеют — reset-токен НЕ выпускаем
+	// (закрывает бэкдор «получить локальный пароль в обход IdP/IdP-MFA»). Ответ остаётся 200
+	// (анти-энумерация): снаружи неотличимо от несуществующего email.
+	if user != nil && user.AuthSource != "oidc" {
 		tb := make([]byte, 32)
 		_, _ = rand.Read(tb)
 		token := hex.EncodeToString(tb)
@@ -1699,6 +1710,17 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid or expired token", http.StatusBadRequest)
 		return
 	}
+	// SSO-аккаунт: локальный пароль устанавливать нельзя (обход IdP/IdP-MFA). Для oidc-юзера
+	// токен и не выпускается (forgotPassword его пропускает), но гардим defense-in-depth.
+	resetUser, uerr := h.db.GetUserByID(r.Context(), t.UserID)
+	if uerr != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if resetUser == nil || resetUser.AuthSource == "oidc" {
+		http.Error(w, "invalid or expired token", http.StatusBadRequest)
+		return
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcryptCost)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -1713,10 +1735,6 @@ func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	var resetEmail string
-	if u, uerr := h.db.GetUserByID(r.Context(), t.UserID); uerr == nil && u != nil {
-		resetEmail = u.Email
-	}
-	h.audit(r.Context(), t.UserID, resetEmail, "password_reset", "user", t.UserID, nil)
+	h.audit(r.Context(), t.UserID, resetUser.Email, "password_reset", "user", t.UserID, nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
