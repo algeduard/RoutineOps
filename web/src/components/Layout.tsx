@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { toast } from "@/lib/toast"
 import { useT } from "@/lib/i18n"
 import { LangSwitcher } from "@/components/LangSwitcher"
+import MfaRequiredBanner from "@/components/MfaRequiredBanner"
 
 const M = {
   navOverview: { ru: "Обзор", en: "Overview" },
@@ -359,6 +360,9 @@ export default function Layout() {
           растягивались в ленты на широких мониторах. */}
       <main key={location.pathname} className="flex-1 overflow-auto p-6 animate-page-in">
         <div className="max-w-[1180px]">
+          {/* Баннер принуждения MFA (миграция 054): виден на всех страницах, пока политика
+              требует включить 2FA у текущего юзера. Ничего не рендерит, если не требуется. */}
+          <MfaRequiredBanner />
           <Outlet />
         </div>
       </main>

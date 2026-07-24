@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "@/lib/toast"
 import { useT } from "@/lib/i18n"
+import { setMfaRequired } from "@/lib/mfaGate"
+import { clearMeCache } from "@/lib/useMe"
 
 interface MfaStatus {
   enabled: boolean
@@ -90,6 +92,10 @@ export default function MfaSection() {
       setRecoveryCodes(r.data.recovery_codes)
       toast({ title: t(M.enabledOk), variant: "success" })
       loadStatus()
+      // MFA включена — снимаем принуждение (баннер) и инвалидируем кэш /me, чтобы после
+      // включения по политике (миграция 054) баннер и гейт больше не срабатывали.
+      setMfaRequired(false)
+      clearMeCache()
     } catch (e) {
       toast({ title: t(M.genericErr), description: errMessage(e), variant: "destructive" })
     } finally {
@@ -106,6 +112,9 @@ export default function MfaSection() {
       setPw(""); setCode("")
       toast({ title: t(M.disabledOk), variant: "success" })
       loadStatus()
+      // Отключение под действующей политикой (миграция 054) снова обязывает включить MFA:
+      // сбрасываем кэш /me, чтобы гейт/баннер пересчитались по свежему серверному сигналу.
+      clearMeCache()
     } catch (e) {
       toast({ title: t(M.genericErr), description: errMessage(e), variant: "destructive" })
     } finally {

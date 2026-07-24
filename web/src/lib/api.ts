@@ -1,6 +1,7 @@
 import axios from "axios"
 import { toast } from "./toast"
 import { t } from "./i18n"
+import { setMfaRequired, isMfaRequiredResponse } from "./mfaGate"
 
 const api = axios.create({ baseURL: "/api/v1" })
 
@@ -27,6 +28,17 @@ api.interceptors.response.use(
     if (err.response?.status === 401) {
       sessionStorage.removeItem("session")
       window.location.href = "/login"
+      return Promise.reject(err)
+    }
+    // MFA enforce-by-policy (миграция 054): гейт сервера сигналит, что юзеру нужно включить
+    // MFA. Взводим глобальный флаг (баннер) и уводим на /profile — там allowlist'нутые ручки
+    // MFA работают. Без тоста (тело {"error":"mfa_required"} нечитаемо) и без редирект-петли
+    // (на /profile гейтимые GET'ы фейлятся тихо, а сам /profile — не редиректим).
+    if (err.response?.status === 403 && isMfaRequiredResponse(err.response)) {
+      setMfaRequired(true)
+      if (!window.location.pathname.startsWith("/profile")) {
+        window.location.href = "/profile"
+      }
       return Promise.reject(err)
     }
     // Авто-тост только для мутаций (POST/PUT/PATCH/DELETE) — действий пользователя.

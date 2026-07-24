@@ -402,12 +402,20 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
+	resp := map[string]string{
 		"id":    user.ID,
 		"email": user.Email,
 		"name":  user.Name,
 		"role":  user.Role,
-	})
+	}
+	// mfa_required: сигнал фронту, что орг-политика (миграция 054) требует от этого юзера
+	// включить MFA, а он её ещё не включил — веб показывает баннер и ведёт на /profile. /me в
+	// allowlist'е гейта, поэтому этот сигнал доступен даже заблокированному юзеру. Ошибку
+	// вычисления не роняем в 500: /me — источник идентичности/роли для UI, важнее отдать её.
+	if required, rerr := h.mfaEnrollmentRequired(r.Context(), user.ID, user.Role); rerr == nil && required {
+		resp["mfa_required"] = "true"
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 type changePasswordRequest struct {

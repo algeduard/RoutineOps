@@ -11,6 +11,7 @@ import { UserPlus } from "lucide-react"
 import { toast } from "@/lib/toast"
 import { useT, type Msg } from "@/lib/i18n"
 import { useMe } from "@/lib/useMe"
+import MfaPolicySettings from "@/components/MfaPolicySettings"
 
 interface User {
   id: string
@@ -211,6 +212,10 @@ export default function Users() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Политика принуждения MFA (миграция 054): страница Users — admin-only, поэтому
+          настройка живёт здесь рядом с управлением доступом. */}
+      <MfaPolicySettings />
 
       <Dialog open={inviteOpen} onOpenChange={(o) => { setInviteOpen(o); if (!o) { setInviteLink(null); setInviteEmail("") } }}>
         <DialogContent>

@@ -209,6 +209,10 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(h.jwtMiddleware)
+		// MFA enforce-by-policy (миграция 054): если орг-политика требует MFA для роли юзера,
+		// а он её не включил — гейт блокирует authed-действия (403 mfa_required), КРОМЕ
+		// allowlist'а включения MFA (анти-локаут). Политика '' (дефолт) → сквозной пропуск.
+		r.Use(h.requireMFAEnrollment)
 
 		// Read-only — все роли
 		r.Get("/me", h.me)
@@ -328,6 +332,11 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 			// нет в списке /api-tokens, поэтому при разборе инцидента её не находят, а
 			// отзыв утёкшего токена доступ не отбирает.
 			r.With(requireHuman).Post("/users/invite", h.inviteUser)
+			// Политика принуждения MFA (миграция 054): чтение — любому it_admin; смена —
+			// requireHuman (стойкая орг-настройка безопасности, не для сервисного токена).
+			// Аудит смены — mfa_policy_changed в самом хендлере.
+			r.Get("/settings/mfa-policy", h.getMFAPolicy)
+			r.With(requireHuman).Put("/settings/mfa-policy", h.setMFAPolicy)
 			// Admin-reset MFA залоченному юзеру: снимает второй фактор БЕЗ его кодов
 			// (аварийный выход при потере телефона и recovery-кодов). requireHuman —
 			// привилегированное действие над чужой учёткой. Аудит mfa_admin_reset.
