@@ -18,7 +18,8 @@ import (
 // устройство → (false, false, nil): fail-safe — без opt-in согласие не пропускается.
 func (db *DB) GetRDUnattended(ctx context.Context, deviceID string) (enabled, found bool, err error) {
 	err = db.pool.QueryRow(ctx,
-		`SELECT rd_unattended FROM devices WHERE id = $1`, deviceID).Scan(&enabled)
+		`SELECT rd_unattended FROM devices WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+		deviceID, scopeParam(ctx)).Scan(&enabled)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, false, nil
@@ -32,7 +33,8 @@ func (db *DB) GetRDUnattended(ctx context.Context, deviceID string) (enabled, fo
 // если устройства нет (0 обновлённых строк).
 func (db *DB) SetRDUnattended(ctx context.Context, deviceID string, enabled bool) (found bool, err error) {
 	tag, err := db.pool.Exec(ctx,
-		`UPDATE devices SET rd_unattended = $2 WHERE id = $1`, deviceID, enabled)
+		`UPDATE devices SET rd_unattended = $2 WHERE id = $1 AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
+		deviceID, enabled, scopeParam(ctx))
 	if err != nil {
 		return false, err
 	}

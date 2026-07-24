@@ -194,9 +194,10 @@ func (db *DB) ListCVEFindings(ctx context.Context, deviceID, severity string) ([
 		JOIN devices d ON d.id = f.device_id
 		WHERE ($1 = '' OR f.device_id::text = $1)
 		  AND ($2 = '' OR f.severity = $2)
+		  AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid)   -- tenant-scope
 		ORDER BY
 		  CASE f.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-		  lower(d.hostname), f.product, f.cve_id`, deviceID, severity)
+		  lower(d.hostname), f.product, f.cve_id`, deviceID, severity, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +225,10 @@ func (db *DB) CVESummaryData(ctx context.Context) (CVESummary, error) {
 	}
 	out.FeedCount = feedCount
 
-	sevRows, err := db.pool.Query(ctx, `SELECT severity, count(*) FROM cve_findings GROUP BY severity`)
+	sevRows, err := db.pool.Query(ctx, `SELECT cve_findings.severity, count(*)
+		FROM cve_findings
+		JOIN devices d ON d.id = cve_findings.device_id AND ($1::uuid IS NULL OR d.tenant_id = $1::uuid)
+		GROUP BY cve_findings.severity`, scopeParam(ctx))
 	if err != nil {
 		return out, err
 	}
@@ -252,11 +256,11 @@ func (db *DB) CVESummaryData(ctx context.Context) (CVESummary, error) {
 		       count(*) FILTER (WHERE f.severity = 'critical'),
 		       count(*) FILTER (WHERE f.severity = 'high')
 		FROM cve_findings f
-		JOIN devices d ON d.id = f.device_id
+		JOIN devices d ON d.id = f.device_id AND ($1::uuid IS NULL OR d.tenant_id = $1::uuid)
 		GROUP BY f.device_id, d.hostname
 		ORDER BY count(*) FILTER (WHERE f.severity = 'critical') DESC,
 		         count(*) FILTER (WHERE f.severity = 'high') DESC,
-		         count(*) DESC, lower(d.hostname)`)
+		         count(*) DESC, lower(d.hostname)`, scopeParam(ctx))
 	if err != nil {
 		return out, err
 	}

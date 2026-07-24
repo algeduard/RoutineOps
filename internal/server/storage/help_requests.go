@@ -76,9 +76,10 @@ func (db *DB) ListHelpRequests(ctx context.Context, deviceID, statusFilter strin
 		LEFT JOIN users u ON u.id = r.closed_by
 		WHERE ($1 = '' OR r.device_id::text = $1)
 		  AND ($2 = '' OR r.status = $2)
+		  AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid)   -- tenant-scope по устройству обращения
 		ORDER BY r.received_at DESC
 		LIMIT 200
-	`, deviceID, statusFilter)
+	`, deviceID, statusFilter, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +103,10 @@ func (db *DB) ListHelpRequests(ctx context.Context, deviceID, statusFilter strin
 func (db *DB) GetHelpRequestScreenshot(ctx context.Context, id string) ([]byte, error) {
 	var img []byte
 	err := db.pool.QueryRow(ctx,
-		`SELECT screenshot FROM help_requests WHERE id::text = $1`, id).Scan(&img)
+		`SELECT screenshot FROM help_requests WHERE id::text = $1
+		   AND EXISTS (SELECT 1 FROM devices d WHERE d.id = help_requests.device_id
+		                 AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid))`,
+		id, scopeParam(ctx)).Scan(&img)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -120,14 +124,21 @@ var ErrHelpRequestNotFound = errors.New("help request not found")
 func (db *DB) SetHelpRequestStatus(ctx context.Context, id, status, userID string) error {
 	var q string
 	args := []any{id}
+	// tenant-scope через устройство обращения (EXISTS-гард в WHERE). Номер параметра зависит
+	// от ветки: 'closed' добавляет userID ($2), поэтому tenant = $3; 'new' → tenant = $2.
 	switch status {
 	case "closed":
 		q = `UPDATE help_requests SET status = 'closed', closed_by = $2, closed_at = now()
-		     WHERE id::text = $1 AND status <> 'closed'`
-		args = append(args, userID)
+		     WHERE id::text = $1 AND status <> 'closed'
+		       AND EXISTS (SELECT 1 FROM devices d WHERE d.id = help_requests.device_id
+		                     AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid))`
+		args = append(args, userID, scopeParam(ctx))
 	case "new":
 		q = `UPDATE help_requests SET status = 'new', closed_by = NULL, closed_at = NULL
-		     WHERE id::text = $1 AND status <> 'new'`
+		     WHERE id::text = $1 AND status <> 'new'
+		       AND EXISTS (SELECT 1 FROM devices d WHERE d.id = help_requests.device_id
+		                     AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid))`
+		args = append(args, scopeParam(ctx))
 	default:
 		return errors.New("status must be 'new' or 'closed'")
 	}

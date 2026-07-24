@@ -74,9 +74,14 @@ type complianceSpec struct {
 func (db *DB) ComplianceReport(ctx context.Context) (ComplianceReport, error) {
 	rep := ComplianceReport{GeneratedAt: time.Now().UTC()}
 
+	// tenant-scope: КАЖДЫЙ под-агрегат считает только объекты тенанта актора ($1 = tenant или
+	// NULL для провайдера). Под-вызовы ListSoftware/ScriptPolicyCompliance скоупятся сами через
+	// ctx. VerifyAuditIntegrity остаётся ГЛОБАЛЬНОЙ — хеш-цепочка неделима на тенанты.
+	tenant := scopeParam(ctx)
+
 	// pair выполняет запрос вида SELECT <passed>, <total> и возвращает пару счётчиков.
-	pair := func(query string) (passed, total int, err error) {
-		err = db.pool.QueryRow(ctx, query).Scan(&passed, &total)
+	pair := func(query string, args ...any) (passed, total int, err error) {
+		err = db.pool.QueryRow(ctx, query, args...).Scan(&passed, &total)
 		return
 	}
 
@@ -100,7 +105,7 @@ func (db *DB) ComplianceReport(ctx context.Context) (ComplianceReport, error) {
 	// it_admin без 2FA — критичная находка: любой такой аккаунт валит проверку в fail
 	// (passAt=warnAt=1.0). Область — только console-роли (validRoles), сервисные токены
 	// (api_tokens) сюда не входят: у них своя аутентификация, не пароль+TOTP.
-	p, tot, err := pair(`SELECT count(*) FILTER (WHERE totp_enabled), count(*) FROM users WHERE role = 'it_admin' AND is_active`)
+	p, tot, err := pair(`SELECT count(*) FILTER (WHERE totp_enabled), count(*) FROM users WHERE role = 'it_admin' AND is_active AND ($1::uuid IS NULL OR tenant_id = $1::uuid)`, tenant)
 	if err != nil {
 		return rep, err
 	}
@@ -109,7 +114,7 @@ func (db *DB) ComplianceReport(ctx context.Context) (ComplianceReport, error) {
 
 	// Более широкий охват: все console-пользователи (it_admin + viewer) c MFA. Не
 	// критично (viewer только читает) — мягкий порог, но низкая доля тянет скор вниз.
-	p, tot, err = pair(`SELECT count(*) FILTER (WHERE totp_enabled), count(*) FROM users WHERE role IN ('it_admin','viewer') AND is_active`)
+	p, tot, err = pair(`SELECT count(*) FILTER (WHERE totp_enabled), count(*) FROM users WHERE role IN ('it_admin','viewer') AND is_active AND ($1::uuid IS NULL OR tenant_id = $1::uuid)`, tenant)
 	if err != nil {
 		return rep, err
 	}
@@ -120,7 +125,7 @@ func (db *DB) ComplianceReport(ctx context.Context) (ComplianceReport, error) {
 	// Шифрование системного тома (FileVault/BitLocker/LUKS). disk_encryption приходит от
 	// агента ('enabled'/'disabled'/''); '' («не знаю») в passed не попадает — считаем
 	// подтверждённо зашифрованные. Область — только active-устройства.
-	p, tot, err = pair(`SELECT count(*) FILTER (WHERE lower(coalesce(disk_encryption,'')) = 'enabled'), count(*) FROM devices WHERE status = 'active'`)
+	p, tot, err = pair(`SELECT count(*) FILTER (WHERE lower(coalesce(disk_encryption,'')) = 'enabled'), count(*) FROM devices WHERE status = 'active' AND ($1::uuid IS NULL OR tenant_id = $1::uuid)`, tenant)
 	if err != nil {
 		return rep, err
 	}
@@ -129,7 +134,7 @@ func (db *DB) ComplianceReport(ctx context.Context) (ComplianceReport, error) {
 
 	// Устройства «на связи»: видевшиеся за 14 дней. Давно не выходившие на связь —
 	// возможно потерянные/выведенные де-факто, но всё ещё active в базе.
-	p, tot, err = pair(`SELECT count(*) FILTER (WHERE last_seen_at >= now() - interval '14 days'), count(*) FROM devices WHERE status = 'active'`)
+	p, tot, err = pair(`SELECT count(*) FILTER (WHERE last_seen_at >= now() - interval '14 days'), count(*) FROM devices WHERE status = 'active' AND ($1::uuid IS NULL OR tenant_id = $1::uuid)`, tenant)
 	if err != nil {
 		return rep, err
 	}
@@ -138,7 +143,7 @@ func (db *DB) ComplianceReport(ctx context.Context) (ComplianceReport, error) {
 
 	// Владелец назначен: инвентарная гигиена — устройство без owner_id ни с кем не
 	// связано (некому эскалировать инцидент).
-	p, tot, err = pair(`SELECT count(*) FILTER (WHERE owner_id IS NOT NULL), count(*) FROM devices WHERE status = 'active'`)
+	p, tot, err = pair(`SELECT count(*) FILTER (WHERE owner_id IS NOT NULL), count(*) FROM devices WHERE status = 'active' AND ($1::uuid IS NULL OR tenant_id = $1::uuid)`, tenant)
 	if err != nil {
 		return rep, err
 	}
@@ -147,7 +152,7 @@ func (db *DB) ComplianceReport(ctx context.Context) (ComplianceReport, error) {
 
 	// Очередь энроллмента не залежалась: pending/pending_approval не старше 7 дней.
 	// passed = свежие заявки; старые нерешённые — жёлтый/красный.
-	p, tot, err = pair(`SELECT count(*) FILTER (WHERE created_at >= now() - interval '7 days'), count(*) FROM devices WHERE status IN ('pending','pending_approval')`)
+	p, tot, err = pair(`SELECT count(*) FILTER (WHERE created_at >= now() - interval '7 days'), count(*) FROM devices WHERE status IN ('pending','pending_approval') AND ($1::uuid IS NULL OR tenant_id = $1::uuid)`, tenant)
 	if err != nil {
 		return rep, err
 	}
@@ -156,7 +161,9 @@ func (db *DB) ComplianceReport(ctx context.Context) (ComplianceReport, error) {
 
 	// Заявки на admin-права не зависли: pending, не прошедшие свой pending_expires_at.
 	// Просроченная, но всё ещё pending заявка = таймер истечения не отработал.
-	p, tot, err = pair(`SELECT count(*) FILTER (WHERE pending_expires_at >= now()), count(*) FROM admin_access_requests WHERE status = 'pending'`)
+	p, tot, err = pair(`SELECT count(*) FILTER (WHERE pending_expires_at >= now()), count(*) FROM admin_access_requests
+		WHERE status = 'pending'
+		  AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM devices d WHERE d.id = admin_access_requests.device_id AND d.tenant_id = $1::uuid))`, tenant)
 	if err != nil {
 		return rep, err
 	}

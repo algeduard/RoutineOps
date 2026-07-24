@@ -128,7 +128,17 @@ func (h *Handler) jwtMiddleware(next http.Handler) http.Handler {
 			// UserID = создатель: нужен, чтобы аудит связывался с живым пользователем.
 			// 🔴 Но это НЕ личность актора: под токеном действует автоматизация, а не
 			// админ. Все «личные» ручки закрыты от токена requireHuman — см. его док.
-			ctx := context.WithValue(r.Context(), claimsKey, &jwtClaims{
+			// Tenant-scope сервисного токена = тенант создавшего его админа (у токена нет своего
+			// аккаунта/тенанта). Создатель мог быть удалён или БД временно недоступна — тогда
+			// провайдер-скоуп (нескоуплен) + предупреждение: рушить автоматизацию из-за этого хуже,
+			// а в single-org всё в Default. tenant_id на api_tokens — follow-up для строгой изоляции.
+			tid, terr := h.db.GetUserTenantID(r.Context(), tok.CreatedBy)
+			if terr != nil {
+				slog.Warn("jwtMiddleware: tenant сервисного токена не разрешён — провайдер-скоуп", "token", tok.Name, "err", terr)
+				tid = ""
+			}
+			ctx := storage.WithTenantScope(r.Context(), tid)
+			ctx = context.WithValue(ctx, claimsKey, &jwtClaims{
 				UserID:  tok.CreatedBy,
 				Email:   "token:" + tok.Name,
 				Role:    tok.Role,
@@ -181,7 +191,16 @@ func (h *Handler) jwtMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		ctx := context.WithValue(r.Context(), claimsKey, claims)
+		// Per-request tenant-scope актора-человека: его tenant_id из users. Ошибка резолва —
+		// fail-closed (500): без известного тенанта нельзя ни скоупить, ни безопасно дать
+		// провайдер-доступ. Default-тенант → нескоуплено (провайдер, см. WithTenantScope).
+		tid, terr := h.db.GetUserTenantID(r.Context(), claims.UserID)
+		if terr != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		ctx := storage.WithTenantScope(r.Context(), tid)
+		ctx = context.WithValue(ctx, claimsKey, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

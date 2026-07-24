@@ -135,11 +135,14 @@ func (db *DB) GetDeviceHostname(ctx context.Context, deviceID string) (string, e
 
 func (db *DB) CreateUser(ctx context.Context, name, email, passwordHash, role string) (*User, error) {
 	var u User
+	// Новый юзер попадает в тенант СОЗДАЮЩЕГО актора: scopeParam=nil (провайдер/Default) →
+	// COALESCE берёт Default; скоупленный админ → его тенант. Иначе юзеры «утекали» бы в Default
+	// у мультитенантного администратора.
 	err := db.pool.QueryRow(ctx, `
-		INSERT INTO users (name, email, password_hash, role)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO users (name, email, password_hash, role, tenant_id)
+		VALUES ($1, $2, $3, $4, COALESCE($5::uuid, '00000000-0000-0000-0000-000000000001'::uuid))
 		RETURNING id, name, email, password_hash, role, created_at
-	`, name, email, passwordHash, role).
+	`, name, email, passwordHash, role, scopeParam(ctx)).
 		Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt)
 	return &u, err
 }
@@ -224,8 +227,10 @@ func (db *DB) ListDevices(ctx context.Context) ([]Device, error) {
 	rows, err := db.pool.Query(ctx, `
 		SELECT id, hostname, os, COALESCE(os_version, ''), COALESCE(ip_address, ''),
 		       status, last_seen_at, created_at, COALESCE(agent_version, '')
-		FROM devices ORDER BY last_seen_at DESC NULLS LAST
-	`)
+		FROM devices
+		WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
+		ORDER BY last_seen_at DESC NULLS LAST
+	`, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -383,8 +388,8 @@ func (db *DB) GetDevice(ctx context.Context, id string) (*Device, []SoftwareItem
        COALESCE(os_patch_date, ''), COALESCE(boot_time, 0), COALESCE(disk_free, ''),
        COALESCE(domain_joined, ''), COALESCE(tpm, ''), COALESCE(secure_boot, ''),
        COALESCE(rd_unattended, false)
-  FROM devices WHERE id = $1
- `, id).Scan(&d.ID, &d.Hostname, &d.OS, &d.OSVersion,
+  FROM devices WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+ `, id, scopeParam(ctx)).Scan(&d.ID, &d.Hostname, &d.OS, &d.OSVersion,
 		&d.IPAddress, &d.Status, &d.LockStatus, &d.LastSeenAt, &d.CreatedAt,
 		&d.CertCN, &d.EnrolledAt, &d.CPU, &d.RAM, &d.Disk, &d.MACAddress, &d.SerialNumber, &d.PublicIP,
 		&d.AgentVersion, &d.UpdateChannel,
@@ -478,14 +483,21 @@ const (
 // пушем (парный гейт к FetchScriptPolicies на pull-канале).
 var ErrDeviceNotActive = errors.New("device is not active")
 
+// ErrDeviceNotFound — целевого устройства нет ИЛИ оно вне тенанта актора (per-query scoping).
+// Возвращается task-creating методами (lock/remove/decommission), когда tenant-scope EXISTS не
+// находит устройство: скоупленный актор не должен ни адресовать задачу чужому устройству, ни
+// отличить «нет устройства» от «не твой тенант». Хендлер маппит в 404.
+var ErrDeviceNotFound = errors.New("device not found")
+
 func (db *DB) CreateTask(ctx context.Context, deviceID, scriptContent, platform, priority string) (*Task, error) {
 	var t Task
 	err := db.pool.QueryRow(ctx, `
   INSERT INTO tasks (device_id, script_content, platform, priority, status)
   SELECT $1, $2, $3, $4, 'pending'
-  WHERE EXISTS (SELECT 1 FROM devices WHERE id = $1 AND status = 'active')
+  WHERE EXISTS (SELECT 1 FROM devices WHERE id = $1 AND status = 'active'
+                  AND ($5::uuid IS NULL OR tenant_id = $5::uuid))
   RETURNING id, device_id, script_content, platform, priority, status, created_at
- `, deviceID, scriptContent, platform, priority).
+ `, deviceID, scriptContent, platform, priority, scopeParam(ctx)).
 		Scan(&t.ID, &t.DeviceID, &t.ScriptContent, &t.Platform, &t.Priority, &t.Status, &t.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrDeviceNotActive // устройство не active → задачу не создаём
@@ -625,7 +637,8 @@ func (db *DB) GetDeviceUpdateChannelByCN(ctx context.Context, cn string) (channe
 // CHECK-констрейнтом из миграции 038.
 func (db *DB) SetDeviceUpdateChannel(ctx context.Context, deviceID, channel string) (found bool, err error) {
 	tag, err := db.pool.Exec(ctx,
-		`UPDATE devices SET update_channel = $2 WHERE id = $1`, deviceID, channel)
+		`UPDATE devices SET update_channel = $2 WHERE id = $1 AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
+		deviceID, channel, scopeParam(ctx))
 	if err != nil {
 		return false, err
 	}
@@ -639,10 +652,14 @@ func (db *DB) CreateLockTask(ctx context.Context, deviceID, lockHash, lockReason
 	var t Task
 	err := db.pool.QueryRow(ctx, `
   INSERT INTO tasks (device_id, script_content, platform, priority, status, task_type, lock_hash, lock_reason, lock_unlock, lock_mode)
-  VALUES ($1, '', COALESCE((SELECT os FROM devices WHERE id = $1), 'unknown'), 'high', 'pending', 'lock', $2, $3, $4, $5)
+  SELECT $1, '', COALESCE((SELECT os FROM devices WHERE id = $1), 'unknown'), 'high', 'pending', 'lock', $2, $3, $4, $5
+  WHERE EXISTS (SELECT 1 FROM devices WHERE id = $1 AND ($6::uuid IS NULL OR tenant_id = $6::uuid))
   RETURNING id, device_id, script_content, platform, priority, status, created_at, task_type, lock_hash, lock_reason, lock_unlock, lock_mode
- `, deviceID, lockHash, lockReason, unlock, lockMode).
+ `, deviceID, lockHash, lockReason, unlock, lockMode, scopeParam(ctx)).
 		Scan(&t.ID, &t.DeviceID, &t.ScriptContent, &t.Platform, &t.Priority, &t.Status, &t.CreatedAt, &t.TaskType, &t.LockHash, &t.LockReason, &t.LockUnlock, &t.LockMode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrDeviceNotFound // устройства нет или оно вне тенанта актора
+	}
 	return &t, err
 }
 
@@ -655,16 +672,21 @@ func (db *DB) CreateRemoveSoftwareTask(ctx context.Context, deviceID, name, vers
 	var t Task
 	err := db.pool.QueryRow(ctx, `
   INSERT INTO tasks (device_id, script_content, platform, priority, status, task_type, software_name, software_version)
-  VALUES ($1, '', COALESCE((SELECT os FROM devices WHERE id = $1), 'unknown'), 'high', 'pending', 'remove_software', $2, $3)
+  SELECT $1, '', COALESCE((SELECT os FROM devices WHERE id = $1), 'unknown'), 'high', 'pending', 'remove_software', $2, $3
+  WHERE EXISTS (SELECT 1 FROM devices WHERE id = $1 AND ($4::uuid IS NULL OR tenant_id = $4::uuid))
   RETURNING id, device_id, script_content, platform, priority, status, created_at, task_type, software_name, software_version
- `, deviceID, name, version).
+ `, deviceID, name, version, scopeParam(ctx)).
 		Scan(&t.ID, &t.DeviceID, &t.ScriptContent, &t.Platform, &t.Priority, &t.Status, &t.CreatedAt, &t.TaskType, &t.SoftwareName, &t.SoftwareVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrDeviceNotFound // устройства нет или оно вне тенанта актора
+	}
 	return &t, err
 }
 
 func (db *DB) UpdateDeviceLockStatus(ctx context.Context, deviceID, lockStatus string) error {
 	_, err := db.pool.Exec(ctx,
-		`UPDATE devices SET lock_status = $2 WHERE id = $1`, deviceID, lockStatus)
+		`UPDATE devices SET lock_status = $2 WHERE id = $1 AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
+		deviceID, lockStatus, scopeParam(ctx))
 	return err
 }
 
@@ -681,10 +703,14 @@ func (db *DB) CreateDecommissionTask(ctx context.Context, deviceID string) (*Tas
 	var t Task
 	err := db.pool.QueryRow(ctx, `
   INSERT INTO tasks (device_id, script_content, platform, priority, status, task_type)
-  VALUES ($1, '', COALESCE((SELECT os FROM devices WHERE id = $1), 'unknown'), 'high', 'pending', 'decommission')
+  SELECT $1, '', COALESCE((SELECT os FROM devices WHERE id = $1), 'unknown'), 'high', 'pending', 'decommission'
+  WHERE EXISTS (SELECT 1 FROM devices WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid))
   RETURNING id, device_id, script_content, platform, priority, status, created_at, task_type, lock_hash, lock_reason, lock_unlock, lock_mode
- `, deviceID).
+ `, deviceID, scopeParam(ctx)).
 		Scan(&t.ID, &t.DeviceID, &t.ScriptContent, &t.Platform, &t.Priority, &t.Status, &t.CreatedAt, &t.TaskType, &t.LockHash, &t.LockReason, &t.LockUnlock, &t.LockMode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrDeviceNotFound // устройства нет или оно вне тенанта актора
+	}
 	return &t, err
 }
 
@@ -705,9 +731,11 @@ func (db *DB) MarkDeviceDecommissioned(ctx context.Context, deviceID string) err
 // "" (а не ошибка) при отсутствии строки: вызывающий сам решает 404.
 func (db *DB) GetDeviceStatusByID(ctx context.Context, id string) (string, error) {
 	var s string
-	err := db.pool.QueryRow(ctx, `SELECT status FROM devices WHERE id = $1`, id).Scan(&s)
+	err := db.pool.QueryRow(ctx,
+		`SELECT status FROM devices WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+		id, scopeParam(ctx)).Scan(&s)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
+		return "", nil // нет строки ИЛИ вне тенанта актора → вызывающий отдаст 404
 	}
 	return s, err
 }
@@ -729,8 +757,9 @@ func (db *DB) SetDeviceLockState(ctx context.Context, deviceID, lockStatus, lock
 		lockMode = LockModeOverlay
 	}
 	_, err := db.pool.Exec(ctx,
-		`UPDATE devices SET lock_status = $2, lock_hash = $3, lock_reason = $4, lock_mode = $5 WHERE id = $1`,
-		deviceID, lockStatus, lockHash, lockReason, lockMode)
+		`UPDATE devices SET lock_status = $2, lock_hash = $3, lock_reason = $4, lock_mode = $5
+		 WHERE id = $1 AND ($6::uuid IS NULL OR tenant_id = $6::uuid)`,
+		deviceID, lockStatus, lockHash, lockReason, lockMode, scopeParam(ctx))
 	return err
 }
 
@@ -766,7 +795,9 @@ func (db *DB) GetTask(ctx context.Context, taskID string) (*Task, error) {
   SELECT id, device_id, script_content, platform, priority, status, output, error_log, created_at,
          task_type, lock_hash, lock_reason, lock_unlock, lock_mode, software_name, software_version
 FROM tasks WHERE id = $1
- `, taskID).Scan(&t.ID, &t.DeviceID, &t.ScriptContent, &t.Platform, &t.Priority, &t.Status, &t.Output, &t.ErrorLog, &t.CreatedAt,
+  AND EXISTS (SELECT 1 FROM devices d WHERE d.id = tasks.device_id
+                AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid))
+ `, taskID, scopeParam(ctx)).Scan(&t.ID, &t.DeviceID, &t.ScriptContent, &t.Platform, &t.Priority, &t.Status, &t.Output, &t.ErrorLog, &t.CreatedAt,
 		&t.TaskType, &t.LockHash, &t.LockReason, &t.LockUnlock, &t.LockMode, &t.SoftwareName, &t.SoftwareVersion)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -981,7 +1012,8 @@ func (db *DB) GetDeviceStatusByFingerprint(ctx context.Context, fingerprint stri
 
 func (db *DB) UpdateDeviceStatus(ctx context.Context, deviceID, status string) error {
 	_, err := db.pool.Exec(ctx,
-		`UPDATE devices SET status = $2 WHERE id = $1`, deviceID, status)
+		`UPDATE devices SET status = $2 WHERE id = $1 AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
+		deviceID, status, scopeParam(ctx))
 	return err
 }
 
@@ -997,7 +1029,9 @@ var ErrDeviceHasEscrow = errors.New("device has recovery-key escrow records")
 // ⚠️ Живой агент воскресит устройство следующим heartbeat (upsert по cert-fingerprint) —
 // удаление имеет смысл только для списанных/переустановленных машин.
 func (db *DB) DeleteDevice(ctx context.Context, id string) (found bool, err error) {
-	tag, err := db.pool.Exec(ctx, `DELETE FROM devices WHERE id = $1`, id)
+	tag, err := db.pool.Exec(ctx,
+		`DELETE FROM devices WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+		id, scopeParam(ctx))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		// Только escrow-констрейнт (ON DELETE RESTRICT) значит «у устройства есть эскроу».
@@ -1134,12 +1168,16 @@ func (db *DB) ListAlerts(ctx context.Context, deviceID string, limit int) ([]Ale
 	// (acknowledged_at IS NULL) DESC держит все непринятые в голове списка.
 	order := ` ORDER BY (a.acknowledged_at IS NULL) DESC, a.created_at DESC`
 	args := []any{}
+	// Tenant-scope: алерт «принадлежит» тенанту своего устройства. При скоупе ($tenant != NULL)
+	// осиротевшие алерты (устройство удалено → LEFT JOIN d.tenant_id NULL) выпадают — они не в
+	// тенанте актора; у провайдера ($tenant NULL) видны все.
+	tenant := scopeParam(ctx)
 	if deviceID != "" {
-		query += ` WHERE a.device_id = $1` + order + ` LIMIT $2`
-		args = append(args, deviceID, limit)
+		query += ` WHERE a.device_id = $1 AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid)` + order + ` LIMIT $2`
+		args = append(args, deviceID, limit, tenant)
 	} else {
-		query += order + ` LIMIT $1`
-		args = append(args, limit)
+		query += ` WHERE ($2::uuid IS NULL OR d.tenant_id = $2::uuid)` + order + ` LIMIT $1`
+		args = append(args, limit, tenant)
 	}
 	rows, err := db.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -1160,7 +1198,9 @@ func (db *DB) ListAlerts(ctx context.Context, deviceID string, limit int) ([]Ale
 func (db *DB) AcknowledgeAlert(ctx context.Context, alertID string) error {
 	tag, err := db.pool.Exec(ctx, `
     UPDATE alerts SET acknowledged_at = now()
-    WHERE id = $1 AND acknowledged_at IS NULL`, alertID)
+    WHERE id = $1 AND acknowledged_at IS NULL
+      AND EXISTS (SELECT 1 FROM devices d WHERE d.id = alerts.device_id
+                    AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid))`, alertID, scopeParam(ctx))
 	if err != nil {
 		return err
 	}
@@ -1283,6 +1323,7 @@ func (db *DB) ListSoftwarePolicyCompliance(ctx context.Context) ([]SoftwarePolic
 			FROM software_policy_rules r
 			JOIN devices d
 			  ON d.status <> 'pending'
+			 AND ($1::uuid IS NULL OR d.tenant_id = $1::uuid)   -- tenant-scope: только устройства актора
 			 AND (
 			       (r.device_id IS NULL AND r.group_id IS NULL)   -- глобальное
 			    OR d.id = r.device_id                             -- оверрайд устройства
@@ -1307,7 +1348,7 @@ func (db *DB) ListSoftwarePolicyCompliance(ctx context.Context) ([]SoftwarePolic
 		FROM software_policy_rules r
 		LEFT JOIN scope s ON s.rule_id = r.id
 		GROUP BY r.id
-	`)
+	`, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -1351,6 +1392,7 @@ func (db *DB) ListSoftwarePolicyDeviceCompliance(ctx context.Context, ruleID str
 		FROM software_policy_rules r
 		JOIN devices d
 		  ON d.status <> 'pending'
+		 AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid)   -- tenant-scope: только устройства актора
 		 AND (
 		       (r.device_id IS NULL AND r.group_id IS NULL)   -- глобальное
 		    OR d.id = r.device_id                             -- оверрайд устройства
@@ -1380,7 +1422,7 @@ func (db *DB) ListSoftwarePolicyDeviceCompliance(ctx context.Context, ruleID str
 		-- дал бы 22P02 → 500; с ::text он просто ничего не находит (конвенция GetScript).
 		WHERE r.id::text = $1
 		ORDER BY installed DESC, lower(d.hostname)
-	`, ruleID)
+	`, ruleID, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -1425,6 +1467,7 @@ func (db *DB) ListScriptPolicyCompliance(ctx context.Context) ([]ScriptPolicyCom
 			FROM policy_assignments pa
 			JOIN device_group_members m ON m.group_id = pa.group_id
 			JOIN devices d ON d.id = m.device_id AND d.status <> 'pending'
+			                AND ($1::uuid IS NULL OR d.tenant_id = $1::uuid)   -- tenant-scope
 		)
 		SELECT p.id,
 		       count(a.device_id)                                        AS in_scope,
@@ -1434,7 +1477,7 @@ func (db *DB) ListScriptPolicyCompliance(ctx context.Context) ([]ScriptPolicyCom
 		LEFT JOIN assigned a ON a.policy_id = p.id
 		LEFT JOIN latest   l ON l.policy_id = p.id AND l.device_id = a.device_id
 		GROUP BY p.id
-	`)
+	`, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -1579,15 +1622,19 @@ func (db *DB) RespondToAdminRequest(ctx context.Context, requestID, decision, de
 		UPDATE admin_access_requests
 		SET status = $2, decided_by = $3, decided_at = now(), expires_at = $4
 		WHERE id = $1 AND status = 'pending'
-	`, requestID, decision, decidedByUserID, expiresAt)
+		  AND EXISTS (SELECT 1 FROM devices d WHERE d.id = admin_access_requests.device_id
+		                AND ($5::uuid IS NULL OR d.tenant_id = $5::uuid))
+	`, requestID, decision, decidedByUserID, expiresAt, scopeParam(ctx))
 	return err
 }
 
 func (db *DB) RevokeAdminAccessRequest(ctx context.Context, requestID string) error {
 	_, err := db.pool.Exec(ctx,
 		`UPDATE admin_access_requests SET status = 'revoked', revoked_at = NOW()
-   WHERE id = $1 AND status = 'approved'`,
-		requestID)
+   WHERE id = $1 AND status = 'approved'
+     AND EXISTS (SELECT 1 FROM devices d WHERE d.id = admin_access_requests.device_id
+                   AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid))`,
+		requestID, scopeParam(ctx))
 	return err
 }
 
@@ -1631,9 +1678,10 @@ func (db *DB) ListAdminAccessRequests(ctx context.Context, statusFilter string) 
 		LEFT JOIN devices d ON d.id = r.device_id
 		LEFT JOIN users u ON u.id = r.requested_by
 		WHERE ($1 = '' OR r.status = $1)
+		  AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid)   -- tenant-scope по устройству заявки
 		ORDER BY r.requested_at DESC
 		LIMIT 100
-	`, statusFilter)
+	`, statusFilter, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -2005,15 +2053,22 @@ func (db *DB) DeleteDeviceGroup(ctx context.Context, id string) error {
 // AddDeviceToGroup — несуществующее устройство/группа = ErrForeignKeyViolation (→400),
 // а не «internal error». То же у AssignPolicyToGroup / AssignSoftwarePolicyToGroup.
 func (db *DB) AddDeviceToGroup(ctx context.Context, deviceID, groupID string) error {
+	// tenant-scope device-стороны: группы deployment-shared, но добавить в них можно только СВОЁ
+	// устройство (иначе скоупленный админ подтянул бы чужое устройство под груп-политики/скрипты).
+	// Устройство вне тенанта → SELECT пуст → тихий no-op; несуществующая группа → FK → 400.
 	_, err := db.pool.Exec(ctx,
-		`INSERT INTO device_group_members (device_id, group_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-		deviceID, groupID)
+		`INSERT INTO device_group_members (device_id, group_id)
+		 SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM devices WHERE id=$1 AND ($3::uuid IS NULL OR tenant_id=$3::uuid))
+		 ON CONFLICT DO NOTHING`,
+		deviceID, groupID, scopeParam(ctx))
 	return wrapFKViolation(err)
 }
 
 func (db *DB) RemoveDeviceFromGroup(ctx context.Context, deviceID, groupID string) error {
 	_, err := db.pool.Exec(ctx,
-		`DELETE FROM device_group_members WHERE device_id=$1 AND group_id=$2`, deviceID, groupID)
+		`DELETE FROM device_group_members WHERE device_id=$1 AND group_id=$2
+		   AND EXISTS (SELECT 1 FROM devices WHERE id=$1 AND ($3::uuid IS NULL OR tenant_id=$3::uuid))`,
+		deviceID, groupID, scopeParam(ctx))
 	return err
 }
 
@@ -2081,13 +2136,17 @@ func (db *DB) FanOutScriptToGroup(ctx context.Context, groupID, scriptContent, p
     -- получает (пуш-двойник pull-гейта в FetchScriptPolicies); rejected/blocked/
     -- decommissioned тоже исключены (не в парке).
     AND d.status = 'active'
+    -- tenant-scope: группы deployment-shared (могут содержать устройства разных тенантов),
+    -- поэтому скоупленный админ фанит скрипт ТОЛЬКО на СВОИ устройства — иначе кросс-тенантный
+    -- RCE через общую группу. Провайдер (scopeParam=nil) фанит на всех.
+    AND ($6::uuid IS NULL OR d.tenant_id = $6::uuid)
     AND CASE
           WHEN d.os ILIKE '%win%' THEN 'Windows'
           WHEN d.os ILIKE '%mac%' OR d.os ILIKE '%darwin%' THEN 'macOS'
           ELSE 'Linux'
         END = $5
   RETURNING id, device_id, script_content, platform, priority, status, created_at
- `, groupID, scriptContent, platform, priority, normalizePlatform(platform))
+ `, groupID, scriptContent, platform, priority, normalizePlatform(platform), scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -2250,8 +2309,9 @@ func (db *DB) ListDeviceTasks(ctx context.Context, deviceID string) ([]Task, err
 	rows, err := db.pool.Query(ctx, `
   SELECT id, device_id, script_content, platform, priority, status, output, error_log, created_at
   FROM tasks WHERE device_id = $1
+    AND EXISTS (SELECT 1 FROM devices d WHERE d.id = $1 AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid))
   ORDER BY created_at DESC LIMIT 50
- `, deviceID)
+ `, deviceID, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -2321,11 +2381,12 @@ func (db *DB) ListEnrolledDevices(ctx context.Context, query, groupID string) ([
 		       COALESCE(d.mac_address, ''), COALESCE(d.serial_number, ''), COALESCE(d.public_ip, '')
 		FROM devices d
 		WHERE d.status != 'pending'
+		  AND ($5::uuid IS NULL OR d.tenant_id = $5::uuid)   -- tenant-scope
 		  AND ($1 = '' OR (`+deviceSearchColumns+`))
 		  AND ($4 = '' OR EXISTS (SELECT 1 FROM device_group_members m
 		                          WHERE m.device_id = d.id AND m.group_id::text = $4))
 		ORDER BY d.last_seen_at DESC NULLS LAST
-	`, q, pattern, stripped, strings.TrimSpace(groupID))
+	`, q, pattern, stripped, strings.TrimSpace(groupID), scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -2393,8 +2454,8 @@ func (db *DB) GetUserByID(ctx context.Context, id string) (*User, error) {
 	var u User
 	err := db.pool.QueryRow(ctx, `
 		SELECT id, name, email, password_hash, role, created_at, auth_source, oidc_issuer, oidc_subject
-		FROM users WHERE id = $1
-	`, id).Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &u.AuthSource, &u.OIDCIssuer, &u.OIDCSubject)
+		FROM users WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+	`, id, scopeParam(ctx)).Scan(&u.ID, &u.Name, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &u.AuthSource, &u.OIDCIssuer, &u.OIDCSubject)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -2407,8 +2468,8 @@ func (db *DB) GetUserByID(ctx context.Context, id string) (*User, error) {
 func (db *DB) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := db.pool.Query(ctx, `
 		SELECT id, name, email, password_hash, role, created_at, auth_source, oidc_issuer, oidc_subject
-		FROM users ORDER BY created_at
-	`)
+		FROM users WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid) ORDER BY created_at
+	`, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -2430,8 +2491,9 @@ func (db *DB) ListUsers(ctx context.Context) ([]User, error) {
 // reset-flow — обе инвалидируют старые токены.
 func (db *DB) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
 	_, err := db.pool.Exec(ctx,
-		`UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1`,
-		userID, passwordHash)
+		`UPDATE users SET password_hash = $2, password_changed_at = now()
+		 WHERE id = $1 AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
+		userID, passwordHash, scopeParam(ctx))
 	return err
 }
 

@@ -81,8 +81,9 @@ func (db *DB) GetResourceMetrics(ctx context.Context, deviceID string, since tim
 		       avg(net_tx_bps)::bigint       AS tx
 		FROM device_metrics
 		WHERE device_id = $1 AND ts >= $3
+		  AND EXISTS (SELECT 1 FROM devices d WHERE d.id = $1 AND ($4::uuid IS NULL OR d.tenant_id = $4::uuid))
 		GROUP BY bucket
-		ORDER BY bucket`, deviceID, bucketSeconds, since)
+		ORDER BY bucket`, deviceID, bucketSeconds, since, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -115,8 +116,9 @@ func (db *DB) GetLatestResourceMetric(ctx context.Context, deviceID string) (*Re
 		       COALESCE(disk_percent, 0), COALESCE(net_rx_bps, 0), COALESCE(net_tx_bps, 0)
 		FROM device_metrics
 		WHERE device_id = $1
+		  AND EXISTS (SELECT 1 FROM devices d WHERE d.id = $1 AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid))
 		ORDER BY ts DESC
-		LIMIT 1`, deviceID).
+		LIMIT 1`, deviceID, scopeParam(ctx)).
 		Scan(&r.Ts, &r.CPUPercent, &r.MemUsedBytes, &r.MemTotalBytes, &r.DiskPercent, &r.NetRxBps, &r.NetTxBps)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -235,7 +237,8 @@ func (db *DB) GetAppUsage(ctx context.Context, deviceID string, since time.Time)
 		SELECT day, app_name, window_title, url, foreground_seconds
 		FROM device_app_usage
 		WHERE device_id = $1 AND day >= $2::date
-		ORDER BY foreground_seconds DESC, app_name`, deviceID, since)
+		  AND EXISTS (SELECT 1 FROM devices d WHERE d.id = $1 AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid))
+		ORDER BY foreground_seconds DESC, app_name`, deviceID, since, scopeParam(ctx))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -258,7 +261,8 @@ func (db *DB) GetAppUsage(ctx context.Context, deviceID string, since time.Time)
 		SELECT day, active_seconds, idle_seconds
 		FROM device_activity_daily
 		WHERE device_id = $1 AND day >= $2::date
-		ORDER BY day`, deviceID, since)
+		  AND EXISTS (SELECT 1 FROM devices d WHERE d.id = $1 AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid))
+		ORDER BY day`, deviceID, since, scopeParam(ctx))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -299,7 +303,8 @@ func (db *DB) GetAppUsageEnabledByFingerprint(ctx context.Context, fingerprint s
 // found=false, если устройства нет.
 func (db *DB) GetAppUsageEnabled(ctx context.Context, deviceID string) (enabled, found bool, err error) {
 	err = db.pool.QueryRow(ctx,
-		`SELECT app_usage_enabled FROM devices WHERE id = $1`, deviceID).Scan(&enabled)
+		`SELECT app_usage_enabled FROM devices WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+		deviceID, scopeParam(ctx)).Scan(&enabled)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, false, nil
@@ -313,7 +318,8 @@ func (db *DB) GetAppUsageEnabled(ctx context.Context, deviceID string) (enabled,
 // нет (0 обновлённых строк).
 func (db *DB) SetAppUsageEnabled(ctx context.Context, deviceID string, enabled bool) (found bool, err error) {
 	tag, err := db.pool.Exec(ctx,
-		`UPDATE devices SET app_usage_enabled = $2 WHERE id = $1`, deviceID, enabled)
+		`UPDATE devices SET app_usage_enabled = $2 WHERE id = $1 AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
+		deviceID, enabled, scopeParam(ctx))
 	if err != nil {
 		return false, err
 	}
@@ -343,7 +349,8 @@ func (db *DB) GetCaptureWindowTitlesByFingerprint(ctx context.Context, fingerpri
 // если устройства нет.
 func (db *DB) GetCaptureWindowTitles(ctx context.Context, deviceID string) (enabled, found bool, err error) {
 	err = db.pool.QueryRow(ctx,
-		`SELECT capture_window_titles FROM devices WHERE id = $1`, deviceID).Scan(&enabled)
+		`SELECT capture_window_titles FROM devices WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+		deviceID, scopeParam(ctx)).Scan(&enabled)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, false, nil
@@ -357,7 +364,8 @@ func (db *DB) GetCaptureWindowTitles(ctx context.Context, deviceID string) (enab
 // устройства нет.
 func (db *DB) SetCaptureWindowTitles(ctx context.Context, deviceID string, enabled bool) (found bool, err error) {
 	tag, err := db.pool.Exec(ctx,
-		`UPDATE devices SET capture_window_titles = $2 WHERE id = $1`, deviceID, enabled)
+		`UPDATE devices SET capture_window_titles = $2 WHERE id = $1 AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
+		deviceID, enabled, scopeParam(ctx))
 	if err != nil {
 		return false, err
 	}
@@ -386,7 +394,8 @@ func (db *DB) GetCaptureURLsByFingerprint(ctx context.Context, fingerprint strin
 // устройства нет.
 func (db *DB) GetCaptureURLs(ctx context.Context, deviceID string) (enabled, found bool, err error) {
 	err = db.pool.QueryRow(ctx,
-		`SELECT capture_urls FROM devices WHERE id = $1`, deviceID).Scan(&enabled)
+		`SELECT capture_urls FROM devices WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+		deviceID, scopeParam(ctx)).Scan(&enabled)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, false, nil
@@ -399,7 +408,8 @@ func (db *DB) GetCaptureURLs(ctx context.Context, deviceID string) (enabled, fou
 // SetCaptureURLs переключает сбор URL. found=false, если устройства нет.
 func (db *DB) SetCaptureURLs(ctx context.Context, deviceID string, enabled bool) (found bool, err error) {
 	tag, err := db.pool.Exec(ctx,
-		`UPDATE devices SET capture_urls = $2 WHERE id = $1`, deviceID, enabled)
+		`UPDATE devices SET capture_urls = $2 WHERE id = $1 AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
+		deviceID, enabled, scopeParam(ctx))
 	if err != nil {
 		return false, err
 	}

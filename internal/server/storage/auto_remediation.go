@@ -210,8 +210,9 @@ func (db *DB) ListRemediationLog(ctx context.Context, limit int) ([]RemediationL
 		       COALESCE(l.task_id::text, ''), l.action, l.created_at
 		FROM auto_remediation_log l
 		LEFT JOIN devices d ON d.id = l.device_id
+		WHERE ($2::uuid IS NULL OR d.tenant_id = $2::uuid)   -- tenant-scope по устройству лога
 		ORDER BY l.created_at DESC
-		LIMIT $1`, limit)
+		LIMIT $1`, limit, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}

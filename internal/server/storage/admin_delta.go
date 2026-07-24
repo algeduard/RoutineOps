@@ -49,7 +49,9 @@ func (db *DB) GetAdminSoftwareDelta(ctx context.Context, requestID string) (Admi
 		`SELECT change_type, software_name, version
 		 FROM admin_access_software_delta
 		 WHERE request_id = $1
-		 ORDER BY software_name`, requestID)
+		   AND EXISTS (SELECT 1 FROM admin_access_requests ar JOIN devices d ON d.id = ar.device_id
+		                 WHERE ar.id = $1 AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid))
+		 ORDER BY software_name`, requestID, scopeParam(ctx))
 	if err != nil {
 		return AdminSoftwareDelta{}, err
 	}

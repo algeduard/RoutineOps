@@ -64,14 +64,18 @@ func (db *DB) DisableUserTOTP(ctx context.Context, userID string) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// tenant-scope (defense-in-depth поверх скоупленного GetUserByID в adminResetMFA): скоупленный
+	// админ не сбросит MFA юзеру ДРУГОГО тенанта. Self-disable (свой id) всегда в своём тенанте.
 	if _, err := tx.Exec(ctx, `
 		UPDATE users
 		SET totp_secret_enc = NULL, totp_enabled = false, totp_confirmed_at = NULL, totp_last_step = 0
-		WHERE id = $1
-	`, userID); err != nil {
+		WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+	`, userID, scopeParam(ctx)); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM mfa_recovery_codes WHERE user_id = $1`, userID); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM mfa_recovery_codes WHERE user_id = $1
+		AND EXISTS (SELECT 1 FROM users u WHERE u.id = $1 AND ($2::uuid IS NULL OR u.tenant_id = $2::uuid))`,
+		userID, scopeParam(ctx)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

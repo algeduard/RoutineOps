@@ -1280,6 +1280,10 @@ func (h *Handler) lockDevice(w http.ResponseWriter, r *http.Request) {
 
 	task, err := h.db.CreateLockTask(r.Context(), id, string(hashBytes), req.Reason, false, lockMode)
 	if err != nil {
+		if errors.Is(err, storage.ErrDeviceNotFound) {
+			http.Error(w, "device not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "failed to create lock task", http.StatusInternalServerError)
 		return
 	}
@@ -1305,6 +1309,10 @@ func (h *Handler) unlockDevice(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	task, err := h.db.CreateLockTask(r.Context(), id, "", "", true, storage.LockModeOverlay)
 	if err != nil {
+		if errors.Is(err, storage.ErrDeviceNotFound) {
+			http.Error(w, "device not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "failed to create unlock task", http.StatusInternalServerError)
 		return
 	}
@@ -1355,6 +1363,10 @@ func (h *Handler) decommissionDevice(w http.ResponseWriter, r *http.Request) {
 
 	task, err := h.db.CreateDecommissionTask(r.Context(), id)
 	if err != nil {
+		if errors.Is(err, storage.ErrDeviceNotFound) {
+			http.Error(w, "device not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "failed to create decommission task", http.StatusInternalServerError)
 		return
 	}

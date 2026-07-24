@@ -155,19 +155,29 @@ func (db *DB) ListAuditLog(ctx context.Context, action string, limit int) ([]Aud
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
+	// tenant-scope: audit_log без tenant_id — скоупим по тенанту ДЕЙСТВОВАВШЕГО юзера. У скоуп-
+	// ленного тенанта видны только записи его пользователей; системные события (user_id NULL) и
+	// действия чужих тенантов скрыты. Провайдер (scopeParam=nil) видит весь журнал, включая
+	// системные. Целостность (VerifyAuditIntegrity) остаётся ГЛОБАЛЬНОЙ — цепочка неделима.
+	tenant := scopeParam(ctx)
 	var query string
 	var args []any
 	if action != "" {
 		query = `SELECT id, user_id, user_email, action, target_type, target_id,
                   COALESCE(details::text, 'null'), created_at
            FROM audit_log WHERE action = $1
+             AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM users u
+                    WHERE u.id = audit_log.user_id AND u.tenant_id = $3::uuid))
            ORDER BY created_at DESC LIMIT $2`
-		args = []any{action, limit}
+		args = []any{action, limit, tenant}
 	} else {
 		query = `SELECT id, user_id, user_email, action, target_type, target_id,
                   COALESCE(details::text, 'null'), created_at
-           FROM audit_log ORDER BY created_at DESC LIMIT $1`
-		args = []any{limit}
+           FROM audit_log
+           WHERE ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM users u
+                    WHERE u.id = audit_log.user_id AND u.tenant_id = $2::uuid))
+           ORDER BY created_at DESC LIMIT $1`
+		args = []any{limit, tenant}
 	}
 	rows, err := db.pool.Query(ctx, query, args...)
 	if err != nil {

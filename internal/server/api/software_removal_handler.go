@@ -4,11 +4,13 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/Floodww/RoutineOps/internal/license"
+	"github.com/Floodww/RoutineOps/internal/server/storage"
 	"github.com/Floodww/RoutineOps/internal/server/worker"
 	"github.com/go-chi/chi/v5"
 )
@@ -59,6 +61,10 @@ func SoftwareRemovalRoutes(mgr *license.Manager) func(*Handler, chi.Router) {
 
 			task, err := h.db.CreateRemoveSoftwareTask(req.Context(), id, name, strings.TrimSpace(body.Version))
 			if err != nil {
+				if errors.Is(err, storage.ErrDeviceNotFound) {
+					http.Error(w, "device not found", http.StatusNotFound)
+					return
+				}
 				slog.Error("create remove-software task", "err", err)
 				http.Error(w, "failed to create task", http.StatusInternalServerError)
 				return

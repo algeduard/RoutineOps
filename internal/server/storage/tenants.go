@@ -149,6 +149,26 @@ func (db *DB) DeleteTenant(ctx context.Context, id string) error {
 	return ErrTenantNotEmpty
 }
 
+// GetUserTenantID возвращает tenant_id пользователя (для установки per-request scope в
+// jwtMiddleware). Осиротевший (tenant удалён → ON DELETE SET NULL) или отсутствующий tenant_id
+// трактуем как DefaultTenantID: провайдер-скоуп безопаснее «пустого» (не отрежет актора от его
+// собственных данных из-за рассинхрона). Юзера нет → ErrTenantNotFound (middleware уже отбил бы
+// такой токен по epoch-проверке, но перестрахуемся).
+func (db *DB) GetUserTenantID(ctx context.Context, userID string) (string, error) {
+	var tid *string
+	err := db.pool.QueryRow(ctx, `SELECT tenant_id FROM users WHERE id = $1`, userID).Scan(&tid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrTenantNotFound
+		}
+		return "", err
+	}
+	if tid == nil || *tid == "" {
+		return DefaultTenantID, nil
+	}
+	return *tid, nil
+}
+
 // AssignDeviceTenant привязывает устройство к тенанту (found=false, если устройства нет → 404).
 // tenantID должен существовать — хендлер проверяет это заранее (GetTenant), поэтому FK тут
 // не нарушится в штатном потоке.

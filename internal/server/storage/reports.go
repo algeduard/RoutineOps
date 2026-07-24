@@ -28,7 +28,8 @@ func (db *DB) StreamDeviceReport(ctx context.Context, emit func([]string) error)
 		       COALESCE(d.serial_number, '')
 		FROM devices d
 		LEFT JOIN users u ON u.id = d.owner_id
-		ORDER BY lower(d.hostname)`)
+		WHERE ($1::uuid IS NULL OR d.tenant_id = $1::uuid)
+		ORDER BY lower(d.hostname)`, scopeParam(ctx))
 	if err != nil {
 		return err
 	}
@@ -50,10 +51,12 @@ func (db *DB) StreamDeviceReport(ctx context.Context, emit func([]string) error)
 // компактный, пригодный для аудита лицензий/распространённости софта отчёт.
 func (db *DB) StreamSoftwareInventoryReport(ctx context.Context, emit func([]string) error) error {
 	rows, err := db.pool.Query(ctx, `
-		SELECT software_name, COALESCE(version, ''), count(DISTINCT device_id)::text
+		SELECT device_software.software_name, COALESCE(device_software.version, ''), count(DISTINCT device_software.device_id)::text
 		FROM device_software
-		GROUP BY software_name, version
-		ORDER BY count(DISTINCT device_id) DESC, lower(software_name), version`)
+		JOIN devices d ON d.id = device_software.device_id
+		            AND ($1::uuid IS NULL OR d.tenant_id = $1::uuid)   -- tenant-scope
+		GROUP BY device_software.software_name, device_software.version
+		ORDER BY count(DISTINCT device_software.device_id) DESC, lower(device_software.software_name), device_software.version`, scopeParam(ctx))
 	if err != nil {
 		return err
 	}
@@ -81,7 +84,9 @@ func (db *DB) StreamAuditReport(ctx context.Context, from, to time.Time, emit fu
 		       COALESCE(details::text, '')
 		FROM audit_log
 		WHERE created_at >= $1 AND created_at < $2
-		ORDER BY created_at`, from, to)
+		  AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM users u
+		         WHERE u.id = audit_log.user_id AND u.tenant_id = $3::uuid))
+		ORDER BY created_at`, from, to, scopeParam(ctx))
 	if err != nil {
 		return err
 	}
@@ -108,7 +113,8 @@ func (db *DB) StreamAlertsReport(ctx context.Context, emit func([]string) error)
 		       COALESCE(to_char(a.acknowledged_at AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
 		FROM alerts a
 		LEFT JOIN devices d ON d.id = a.device_id
-		ORDER BY a.created_at DESC`)
+		WHERE ($1::uuid IS NULL OR d.tenant_id = $1::uuid)
+		ORDER BY a.created_at DESC`, scopeParam(ctx))
 	if err != nil {
 		return err
 	}
