@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { useNavigate } from "react-router-dom"
-import { Upload, Trash2, ScanSearch, ShieldAlert } from "lucide-react"
-import api, { CVEFinding, CVESummary, CVESeverity, errStatus } from "@/lib/api"
+import { Upload, Trash2, ScanSearch, ShieldAlert, RefreshCw } from "lucide-react"
+import api, { CVEFinding, CVESummary, CVESeverity, CVEFeedSource, errStatus } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
 import { Select } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
@@ -47,6 +48,31 @@ const M = {
   scanning: { ru: "Сканирование...", en: "Scanning..." },
   scanDone: { ru: "Скан завершён: находок {n}", en: "Scan complete: {n} findings" },
   scanHintStale: { ru: "Фид изменён — запустите скан, чтобы обновить находки.", en: "The feed changed — run a scan to refresh findings." },
+
+  sourceTitle: { ru: "Внешний источник фида", en: "External feed source" },
+  sourceIntro: {
+    ru: "Вместо ручной загрузки — автоматически тянуть фид с внешнего URL по расписанию. Ожидается тот же JSON-массив записей, что и при ручной загрузке (реальные выгрузки NVD/OSV приведите к нему прокси/скриптом). Синк ЗАМЕНЯЕТ фид целиком.",
+    en: "Instead of manual upload — automatically pull the feed from an external URL on a schedule. The same JSON array of records as the manual upload is expected (map real NVD/OSV exports to it via a proxy/script). A sync REPLACES the whole feed.",
+  },
+  sourceEnabled: { ru: "Включить авто-синхронизацию", en: "Enable auto-sync" },
+  sourceAutoScan: { ru: "Пересканировать после синка", en: "Rescan after sync" },
+  sourceUrl: { ru: "URL источника (http/https)", en: "Source URL (http/https)" },
+  sourceUrlPlaceholder: { ru: "https://feeds.example.com/cve.json", en: "https://feeds.example.com/cve.json" },
+  sourceInterval: { ru: "Интервал синка (часы)", en: "Sync interval (hours)" },
+  sourceSave: { ru: "Сохранить источник", en: "Save source" },
+  sourceSaving: { ru: "Сохранение...", en: "Saving..." },
+  sourceSaved: { ru: "Источник сохранён", en: "Source saved" },
+  syncNow: { ru: "Синхронизировать сейчас", en: "Sync now" },
+  syncing: { ru: "Синхронизация...", en: "Syncing..." },
+  syncDone: { ru: "Синхронизация выполнена", en: "Sync complete" },
+  sourceOn: { ru: "Авто-синк включён", en: "Auto-sync on" },
+  sourceOff: { ru: "Авто-синк выключен", en: "Auto-sync off" },
+  lastSync: { ru: "Последний синк: {when} — {status}", en: "Last sync: {when} — {status}" },
+  lastSyncNever: { ru: "Синхронизаций ещё не было.", en: "No syncs yet." },
+  sourceHint: {
+    ru: "«Синхронизировать сейчас» использует СОХРАНЁННЫЙ источник (сохраните изменения перед синком). Внутренние адреса разрешены; размер ответа и таймаут ограничены.",
+    en: "\"Sync now\" uses the SAVED source (save changes before syncing). Internal addresses are allowed; response size and timeout are capped.",
+  },
 
   summaryTitle: { ru: "Сводка по парку", en: "Fleet summary" },
   totalFindings: { ru: "Находок", en: "Findings" },
@@ -105,6 +131,16 @@ export default function Cve() {
   // Фид меняли (залили/очистили) после последнего скана — находки могли устареть.
   const [feedStale, setFeedStale] = useState(false)
 
+  // Внешний источник фида (авто-синк). Форма отражает сохранённый конфиг; синк использует
+  // именно сохранённое состояние на сервере, а не несохранённые правки формы.
+  const [source, setSource] = useState<CVEFeedSource | null>(null)
+  const [srcUrl, setSrcUrl] = useState("")
+  const [srcInterval, setSrcInterval] = useState(24)
+  const [srcEnabled, setSrcEnabled] = useState(false)
+  const [srcAutoScan, setSrcAutoScan] = useState(true)
+  const [savingSource, setSavingSource] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+
   async function fetchFindings() {
     const params = new URLSearchParams()
     if (deviceId) params.set("device_id", deviceId)
@@ -119,10 +155,24 @@ export default function Cve() {
     setSummary(r.data)
   }
 
+  // applySource синхронизирует форму с серверным конфигом источника.
+  function applySource(s: CVEFeedSource) {
+    setSource(s)
+    setSrcUrl(s.url)
+    setSrcInterval(s.sync_interval_hours)
+    setSrcEnabled(s.enabled)
+    setSrcAutoScan(s.auto_scan)
+  }
+
+  async function fetchFeedSource() {
+    const r = await api.get<CVEFeedSource>("/cve/feed-source")
+    applySource(r.data)
+  }
+
   async function reloadAll() {
     setLoadError(false)
     try {
-      await Promise.all([fetchSummary(), fetchFindings()])
+      await Promise.all([fetchSummary(), fetchFindings(), fetchFeedSource()])
     } catch (e) {
       if (errStatus(e) === 404 || errStatus(e) === 402) {
         setUnavailable(true)
@@ -199,6 +249,41 @@ export default function Cve() {
     }
   }
 
+  async function saveSource(e: FormEvent) {
+    e.preventDefault()
+    setSavingSource(true)
+    try {
+      const r = await api.put<CVEFeedSource>("/cve/feed-source", {
+        url: srcUrl.trim(),
+        sync_interval_hours: srcInterval,
+        enabled: srcEnabled,
+        auto_scan: srcAutoScan,
+      })
+      applySource(r.data)
+      toast({ title: t(M.sourceSaved), variant: "success" })
+    } catch {
+      // авто-тост интерсептора (400 «valid url» / 402 и т.п.)
+    } finally {
+      setSavingSource(false)
+    }
+  }
+
+  async function syncNow() {
+    setSyncing(true)
+    try {
+      const r = await api.post<CVEFeedSource>("/cve/feed-source/sync", {})
+      applySource(r.data)
+      // Успешный синк заменил фид; если auto_scan — он и пересканировал, иначе находки устарели.
+      if (r.data.last_status.startsWith("ok")) setFeedStale(!r.data.auto_scan)
+      toast({ title: t(M.syncDone), variant: "success" })
+      await reloadAll()
+    } catch {
+      // авто-тост интерсептора
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   if (loading) return <p className="text-muted-foreground text-sm">{t(M.loading)}</p>
 
   if (unavailable) {
@@ -263,6 +348,63 @@ export default function Cve() {
         )}
         <p className="text-xs text-muted-foreground max-w-3xl">{t(M.feedHint)}</p>
       </div>
+
+      {/* Внешний источник фида (авто-синк по расписанию) */}
+      <form onSubmit={saveSource} className="glass px-5 py-4 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-[15px] font-semibold text-foreground">{t(M.sourceTitle)}</h2>
+          <div className="flex items-center gap-2">
+            {source?.enabled
+              ? <Badge variant="success">{t(M.sourceOn)}</Badge>
+              : <Badge variant="secondary">{t(M.sourceOff)}</Badge>}
+            <Button type="button" variant="outline" size="sm" onClick={syncNow} disabled={syncing || !source?.url}>
+              <RefreshCw className={`h-4 w-4 mr-1.5 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? t(M.syncing) : t(M.syncNow)}
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground max-w-3xl">{t(M.sourceIntro)}</p>
+
+        <p className="text-sm text-soft">
+          {source?.last_synced_at
+            ? t(M.lastSync, { when: new Date(source.last_synced_at).toLocaleString(), status: source.last_status })
+            : t(M.lastSyncNever)}
+        </p>
+
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={srcEnabled} onChange={(e) => setSrcEnabled(e.target.checked)} />
+            <span className="text-foreground">{t(M.sourceEnabled)}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={srcAutoScan} onChange={(e) => setSrcAutoScan(e.target.checked)} />
+            <span className="text-foreground">{t(M.sourceAutoScan)}</span>
+          </label>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <div className="space-y-1.5 grow min-w-64">
+            <Label htmlFor="cve-src-url" className="text-soft">{t(M.sourceUrl)}</Label>
+            <Input id="cve-src-url" value={srcUrl} onChange={(e) => setSrcUrl(e.target.value)} placeholder={t(M.sourceUrlPlaceholder)} />
+          </div>
+          <div className="space-y-1.5 w-36">
+            <Label htmlFor="cve-src-interval" className="text-soft">{t(M.sourceInterval)}</Label>
+            <Input
+              id="cve-src-interval"
+              type="number"
+              min={1}
+              max={720}
+              value={srcInterval}
+              onChange={(e) => setSrcInterval(Number(e.target.value) || 1)}
+            />
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground max-w-3xl">{t(M.sourceHint)}</p>
+        <Button type="submit" size="sm" disabled={savingSource || (srcEnabled && !srcUrl.trim())}>
+          {savingSource ? t(M.sourceSaving) : t(M.sourceSave)}
+        </Button>
+      </form>
 
       {/* Сводка */}
       <div className="glass px-5 py-4">

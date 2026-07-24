@@ -272,6 +272,21 @@ export interface CVESummary {
   by_device: CVEDeviceCount[]
 }
 
+// CVEFeedSource — конфиг внешнего источника CVE-фида (GET/PUT /cve/feed-source, enterprise).
+// url указывает на выгрузку в том же JSON-формате, что принимает ручная заливка POST /cve/feed;
+// фоновый синкер по расписанию (sync_interval_hours) её скачивает и заменяет фид, а при auto_scan
+// пересобирает находки. last_synced_at — время последней ПОПЫТКИ синка (успех или ошибка),
+// last_status — её итог ('ok: ...' / 'error: ...'). POST /cve/feed-source/sync форсирует синк.
+export interface CVEFeedSource {
+  url: string
+  sync_interval_hours: number
+  enabled: boolean
+  auto_scan: boolean
+  last_synced_at?: string
+  last_status: string
+  updated_at: string
+}
+
 // Tenant — арендатор (GET/POST/PATCH/DELETE /tenants, enterprise; в open-core роутов нет →
 // 404). device_count/user_count — привязанные сущности (приходят в списке). is_default помечает
 // неудаляемый default-тенант, в который бэкфилены существующие устройства/пользователи.
