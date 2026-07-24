@@ -18,6 +18,7 @@ const M = {
   signIn: { ru: "Войти", en: "Sign in" },
   forgotPassword: { ru: "Забыли пароль?", en: "Forgot password?" },
   ssoButton: { ru: "Войти через SSO", en: "Sign in with SSO" },
+  samlButton: { ru: "Войти через SAML", en: "Sign in with SAML" },
   or: { ru: "или", en: "or" },
   ssoLanding: { ru: "Завершаем вход...", en: "Finishing sign-in..." },
   ssoFailedGeneric: { ru: "Не удалось войти через SSO", en: "SSO sign-in failed" },
@@ -47,6 +48,9 @@ export default function Login() {
   const [code, setCode] = useState("")
   const [useRecovery, setUseRecovery] = useState(false)
   const [ssoEnabled, setSsoEnabled] = useState(false)
+  // samlEnabled: SAML 2.0 SSO включён независимо от OIDC (свой /auth/saml/status). Успех/ошибка
+  // SAML лендятся через тот же ?sso=1 / ?sso_error= контракт, что OIDC — доп. обработка не нужна.
+  const [samlEnabled, setSamlEnabled] = useState(false)
   // ssoLanding: вернулись с успешного SSO-callback (?sso=1) — пробим /me и уходим в app.
   const [ssoLanding, setSsoLanding] = useState(false)
   const navigate = useNavigate()
@@ -79,6 +83,10 @@ export default function Login() {
     // Показывать ли кнопку SSO (страница логина неаутентифицирована — /capabilities ей недоступен).
     axios.get<{ enabled: boolean }>("/api/v1/auth/sso/status")
       .then((r) => setSsoEnabled(!!r.data?.enabled))
+      .catch(() => {})
+    // Отдельный статус SAML — OIDC и SAML можно включать независимо.
+    axios.get<{ enabled: boolean }>("/api/v1/auth/saml/status")
+      .then((r) => setSamlEnabled(!!r.data?.enabled))
       .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -171,21 +179,33 @@ export default function Login() {
               <Link to="/forgot-password" className="block text-center text-sm text-muted-foreground hover:text-foreground transition-colors">
                 {t(M.forgotPassword)}
               </Link>
-              {ssoEnabled && (
+              {(ssoEnabled || samlEnabled) && (
                 <>
                   <div className="flex items-center gap-3 pt-1">
                     <div className="h-px flex-1 bg-border" />
                     <span className="text-xs text-muted-foreground">{t(M.or)}</span>
                     <div className="h-px flex-1 bg-border" />
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => { window.location.href = "/api/v1/auth/sso/login" }}
-                  >
-                    {t(M.ssoButton)}
-                  </Button>
+                  {ssoEnabled && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => { window.location.href = "/api/v1/auth/sso/login" }}
+                    >
+                      {t(M.ssoButton)}
+                    </Button>
+                  )}
+                  {samlEnabled && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => { window.location.href = "/api/v1/auth/saml/login" }}
+                    >
+                      {t(M.samlButton)}
+                    </Button>
+                  )}
                 </>
               )}
             </form>

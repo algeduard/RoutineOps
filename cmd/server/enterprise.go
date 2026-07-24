@@ -74,6 +74,11 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 	// сконфигурирован && лицензия покрывает фичу; иначе публичные /auth/sso/* отдают 404/выкл.
 	ssoProvider := api.NewOIDCProvider(db, mgr, publicWebURL, cookieSecure)
 
+	// SAML 2.0 SP-провайдер (за той же лицензией FeatureSSO — SAML это вариант SSO). Конструктор
+	// читает SAML_* env, discovery IdP-метаданных ленивый (первый запрос), поэтому недоступный на
+	// старте IdP сервер не роняет. Enabled() = сконфигурирован && лицензия; иначе /auth/saml/* 404.
+	samlProvider := api.NewSAMLProvider(db, mgr, publicWebURL, cookieSecure)
+
 	// SCIM 2.0 provisioning-провайдер (за лицензией FeatureSCIM). Публичные /scim/v2/* с
 	// собственным bearer-токеном (не JWT); провайдер сам гейтит лицензию/токен. Управление
 	// токеном — админ-ручки SCIMRoutes (it_admin).
@@ -81,6 +86,8 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 
 	return []api.RouterOption{
 		api.WithSSO(ssoProvider),
+		// SAML 2.0 SP: публичные /auth/saml/{metadata,login,acs} (WithSAML). За FeatureSSO.
+		api.WithSAML(samlProvider),
 		// SCIM: публичный провижининг-канал (WithSCIM) + админ-управление токеном (it_admin).
 		api.WithSCIM(scimProvider),
 		api.WithAdminRoutes(api.SCIMRoutes(mgr)),

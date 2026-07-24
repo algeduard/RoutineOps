@@ -117,6 +117,9 @@ type Handler struct {
 	// sso — OIDC-провайдер (enterprise), ставится через WithSSO. nil в open-core →
 	// публичные /auth/sso/* отдают 404/выкл. См. sso.go.
 	sso SSOProvider
+	// saml — SAML 2.0 SP-провайдер (enterprise), ставится через WithSAML. nil в open-core →
+	// публичные /auth/saml/* отдают 404/выкл, SAML-либа в free-сборку не линкуется. См. saml.go.
+	saml SAMLProvider
 	// scim — SCIM 2.0 provisioning-провайдер (enterprise), ставится через WithSCIM. nil в
 	// open-core → публичные /scim/v2/* отдают 404. Провайдер сам проверяет лицензию и bearer.
 	// См. scim.go (базовый шов) и scim_enterprise.go (реализация).
@@ -175,6 +178,12 @@ func NewRouter(db *storage.DB, asynqClient *asynq.Client, jwtSecret []byte, ca *
 	r.With(httprate.LimitByIP(10, time.Minute)).Get("/api/v1/auth/sso/login", h.ssoLogin)
 	r.With(httprate.LimitByIP(10, time.Minute)).Get("/api/v1/auth/sso/callback", h.ssoCallback)
 	r.Get("/api/v1/auth/sso/status", h.ssoStatus)
+	// SAML 2.0 SP — публичные (сессии ещё нет), РЯДОМ с OIDC. Делегируют h.saml (enterprise);
+	// в open-core h.saml==nil → metadata/login/acs 404, status выкл. ACS — POST от IdP.
+	r.With(httprate.LimitByIP(10, time.Minute)).Get("/api/v1/auth/saml/metadata", h.samlMetadata)
+	r.With(httprate.LimitByIP(10, time.Minute)).Get("/api/v1/auth/saml/login", h.samlLogin)
+	r.With(httprate.LimitByIP(10, time.Minute)).Post("/api/v1/auth/saml/acs", h.samlACS)
+	r.Get("/api/v1/auth/saml/status", h.samlStatus)
 	// SCIM 2.0 provisioning (enterprise) — ПУБЛИЧНЫЙ неймспейс: IdP (Okta/Azure AD) ходит СВОИМ
 	// bearer-токеном (Authorization: Bearer <scim>), НЕ админским JWT, поэтому роуты ВНЕ
 	// /api/v1 authed-группы и ДО SPA-wildcard. Делегируют h.scim (WithSCIM); в open-core
