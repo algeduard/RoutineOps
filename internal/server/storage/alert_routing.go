@@ -2,7 +2,10 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Уровни критичности алертов. Порядок задаётся AlertSeverityRank: правило срабатывает на
@@ -162,11 +165,43 @@ func (db *DB) ListEscalatableAlerts(ctx context.Context, limit int) ([]RoutableA
 	return scanRoutableAlerts(rows)
 }
 
-// MarkAlertEscalated фиксирует время повторной доставки (анти-спам эскалации).
+// MarkAlertEscalated фиксирует время повторной доставки (анти-спам эскалации). Оставлена
+// для совместимости; per-rule анти-спам теперь ведёт TryEscalateRule (таблица
+// alert_rule_escalations), а не общая колонка alerts.last_escalated_at.
 func (db *DB) MarkAlertEscalated(ctx context.Context, alertID string) error {
 	_, err := db.pool.Exec(ctx,
 		`UPDATE alerts SET last_escalated_at = now() WHERE id = $1::uuid`, alertID)
 	return err
+}
+
+// TryEscalateRule атомарно «проверяет-и-отмечает» per-(alert, rule) анти-спам эскалации.
+// Один upsert: при первой эскалации пары (alertID, ruleID) вставляет строку, при повторе
+// обновляет last_escalated_at ТОЛЬКО если с прошлой эскалации прошло не меньше
+// thresholdSeconds. Возвращает true, если эскалировать нужно СЕЙЧАС (строка вставлена или
+// обновлена — RETURNING отдал строку), false — если анти-спам ещё держит (прошлая эскалация
+// свежее порога: DO UPDATE ... WHERE не сматчил, RETURNING пуст).
+//
+// Порог у каждого правила свой, поэтому состояние ведётся per-(alert, rule): быстрое правило
+// больше не сбрасывает окно медленного (была общая колонка last_escalated_at — медленный
+// канал тихо терялся). Атомарность upsert'а даёт корректность при гонке тиков/узлов: ON
+// CONFLICT сериализует конкурентные вставки по первичному ключу, и ровно один вызов получит
+// строку из RETURNING.
+func (db *DB) TryEscalateRule(ctx context.Context, alertID, ruleID string, thresholdSeconds int) (bool, error) {
+	var returned string
+	err := db.pool.QueryRow(ctx, `
+		INSERT INTO alert_rule_escalations (alert_id, rule_id)
+		VALUES ($1::uuid, $2::uuid)
+		ON CONFLICT (alert_id, rule_id) DO UPDATE
+		  SET last_escalated_at = now()
+		  WHERE alert_rule_escalations.last_escalated_at < now() - ($3 * interval '1 second')
+		RETURNING alert_id`, alertID, ruleID, thresholdSeconds).Scan(&returned)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil // анти-спам: прошлая эскалация этого правила ещё свежее порога
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // rowScanner — минимальный интерфейс pgx.Rows, нужный scanRoutableAlerts.

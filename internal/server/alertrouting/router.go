@@ -6,7 +6,8 @@
 // rank(min_severity)) и доставляет в канал правила (telegram-чат или webhook). Доставка
 // best-effort: ошибка канала логируется, но не мешает пометить алерт обработанным и не
 // роняет создание алерта. Отдельно тот же цикл эскалирует НЕпринятые critical-алерты старше
-// порога escalate_after_minutes (повторная доставка с анти-спамом по last_escalated_at).
+// порога escalate_after_minutes (повторная доставка с per-(alert,rule) анти-спамом —
+// таблица alert_rule_escalations, у каждого правила своё независимое окно).
 // Гейт по лицензии — снаружи (licensed()), чтобы пакет не зависел от internal/license.
 package alertrouting
 
@@ -114,9 +115,10 @@ func (r *Router) routeNew(ctx context.Context, enabled []storage.AlertRoutingRul
 }
 
 // escalate повторно доставляет НЕпринятые critical-алерты старше порога escalate_after_minutes
-// у правил с эскалацией. Анти-спам: между повторами по одному алерту должно пройти не меньше
-// порога (last_escalated_at). Помечаем алерт эскалированным, только если хоть одно правило
-// реально сработало в этот тик.
+// у правил с эскалацией. Анти-спам ведётся per-(alert, rule): у каждого правила своё окно
+// (TryEscalateRule атомарно проверяет-и-отмечает по таблице alert_rule_escalations). Это
+// чинит прежний баг общей колонки last_escalated_at, где быстрое правило на каждом тике
+// сбрасывало окно и медленное правило со своим порогом тихо теряло канал эскалации.
 func (r *Router) escalate(ctx context.Context, enabled []storage.AlertRoutingRule) {
 	var escRules []storage.AlertRoutingRule
 	for _, rule := range enabled {
@@ -133,31 +135,25 @@ func (r *Router) escalate(ctx context.Context, enabled []storage.AlertRoutingRul
 		return
 	}
 	now := time.Now()
-	// ОГРАНИЧЕНИЕ (осознанное, MVP): анти-спам считается по ЕДИНОЙ на алерт колонке
-	// last_escalated_at, а порог — у каждого правила свой. Если на один алерт матчатся
-	// НЕСКОЛЬКО правил эскалации с РАЗНЫМИ escalate_after_minutes, быстрое правило на каждом
-	// тике сбрасывает last_escalated_at, и медленное может не дозреть до своего порога. Для
-	// типового одного правила эскалации всё корректно. Правильный фикс — per-(alert,rule)
-	// состояние (таблица) — follow-up; здесь не делаем ради простоты MVP.
 	for _, a := range alerts {
-		escalated := false
 		for _, rule := range escRules {
 			if storage.AlertSeverityRank(a.Severity) < storage.AlertSeverityRank(rule.MinSeverity) {
 				continue
 			}
 			threshold := time.Duration(rule.EscalateAfterMinutes) * time.Minute
 			if now.Sub(a.CreatedAt) < threshold {
-				continue // ещё не дозрел до порога этого правила
+				continue // ещё не дозрел до порога этого правила по времени создания
 			}
-			if a.LastEscalatedAt != nil && now.Sub(*a.LastEscalatedAt) < threshold {
-				continue // недавно уже эскалировали — не спамим
+			// Атомарный per-(alert, rule) анти-спам: строку вернуло — окно правила прошло,
+			// эскалируем; пусто — недавно уже эскалировали этим правилом, не спамим. Окно
+			// каждого правила независимо, поэтому быстрое правило не глушит медленное.
+			ok, err := r.db.TryEscalateRule(ctx, a.ID, rule.ID, rule.EscalateAfterMinutes*60)
+			if err != nil {
+				r.logger.Error("alert routing: per-rule анти-спам эскалации", "alert_id", a.ID, "rule_id", rule.ID, "err", err)
+				continue
 			}
-			r.deliver(ctx, rule, a, true)
-			escalated = true
-		}
-		if escalated {
-			if err := r.db.MarkAlertEscalated(ctx, a.ID); err != nil {
-				r.logger.Error("alert routing: пометка эскалации", "alert_id", a.ID, "err", err)
+			if ok {
+				r.deliver(ctx, rule, a, true)
 			}
 		}
 	}

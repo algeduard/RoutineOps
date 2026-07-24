@@ -72,6 +72,19 @@ func (c *tgCapture) count() int {
 	return len(c.calls)
 }
 
+// countTo — сколько доставок ушло в конкретный chat_id (для проверки независимости правил).
+func (c *tgCapture) countTo(chatID string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, call := range c.calls {
+		if call.chatID == chatID {
+			n++
+		}
+	}
+	return n
+}
+
 func newTestRouter(db *storage.DB, licensed bool, tg TelegramSendFunc) *Router {
 	r := NewRouter(db, func() bool { return licensed }, tg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r.lagSeconds = 0 // в тесте обрабатываем только что созданные алерты
@@ -221,6 +234,77 @@ func TestEscalationReDelivers(t *testing.T) {
 	r.tick()
 	if tg.count() != 1 {
 		t.Fatalf("повторный тик не должен спамить: доставок = %d, want 1", tg.count())
+	}
+}
+
+// TestEscalationMultiTierIndependentPerRule: два правила эскалации с РАЗНЫМИ порогами на один
+// старый critical-алерт. Раньше анти-спам жил в общей колонке alerts.last_escalated_at, и
+// быстрое правило на каждом тике сбрасывало её, навсегда лишая медленное правило эскалации.
+// Теперь окно per-(alert, rule): быстрое правило может эскалировать многократно, но это НЕ
+// глушит независимое окно медленного — своё окно медленное отрабатывает, когда его порог
+// прошёл. Детерминизм — сдвигом last_escalated_at в alert_rule_escalations, без ожидания
+// реального времени.
+func TestEscalationMultiTierIndependentPerRule(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+	dev := mustDevice(t, db)
+
+	const fastChat, slowChat = "-100FAST", "-100SLOW"
+	fast, err := db.CreateAlertRoutingRule(ctx, "warning", "telegram", fastChat, true, 1) // порог 1 мин
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow, err := db.CreateAlertRoutingRule(ctx, "warning", "telegram", slowChat, true, 5) // порог 5 мин
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateAlert(ctx, dev, "forbidden_software", `{"p":"multi.exe"}`, ""); err != nil {
+		t.Fatal(err)
+	}
+	// Алерт «старый» (созрел для ОБОИХ порогов) и уже routed — escalate его видит.
+	if _, err := db.Pool().Exec(ctx,
+		`UPDATE alerts SET created_at = now() - interval '10 minutes', routed_at = now() WHERE device_id = $1`, dev); err != nil {
+		t.Fatal(err)
+	}
+
+	tg := &tgCapture{}
+	r := newTestRouter(db, true, tg.send)
+
+	// Тик 1: оба правила эскалируют впервые (свои per-rule строки создаются).
+	r.tick()
+	if got := tg.countTo(fastChat); got != 1 {
+		t.Fatalf("тик1 быстрое правило: доставок = %d, want 1", got)
+	}
+	if got := tg.countTo(slowChat); got != 1 {
+		t.Fatalf("тик1 медленное правило: доставок = %d, want 1", got)
+	}
+
+	// Состариваем ТОЛЬКО окно быстрого правила (его 1-мин порог прошёл); окно медленного
+	// остаётся свежим (его 5-мин порог ещё держит анти-спам).
+	if _, err := db.Pool().Exec(ctx,
+		`UPDATE alert_rule_escalations SET last_escalated_at = now() - interval '2 minutes' WHERE rule_id = $1`, fast.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Тик 2: быстрое эскалирует снова, медленное молчит (его окно не прошло). Именно здесь
+	// старая общая колонка сбрасывалась бы быстрым правилом и глушила медленное навсегда.
+	r.tick()
+	if got := tg.countTo(fastChat); got != 2 {
+		t.Fatalf("тик2 быстрое правило: доставок = %d, want 2", got)
+	}
+	if got := tg.countTo(slowChat); got != 1 {
+		t.Fatalf("тик2 медленное правило не должно спамить: доставок = %d, want 1", got)
+	}
+
+	// Состариваем окно медленного правила (его 5-мин порог прошёл) — независимо от того,
+	// сколько раз успело сработать быстрое.
+	if _, err := db.Pool().Exec(ctx,
+		`UPDATE alert_rule_escalations SET last_escalated_at = now() - interval '6 minutes' WHERE rule_id = $1`, slow.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Тик 3: медленное правило получает свою повторную эскалацию — канал НЕ потерян.
+	r.tick()
+	if got := tg.countTo(slowChat); got != 2 {
+		t.Fatalf("тик3 медленное правило должно эскалировать по своему окну: доставок = %d, want 2", got)
 	}
 }
 
