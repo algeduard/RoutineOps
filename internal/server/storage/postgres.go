@@ -597,10 +597,14 @@ func (db *DB) FailStaleAckedTasks(ctx context.Context, timeoutMinutes int) (int6
 	return res.RowsAffected(), nil
 }
 
+// GetDeviceCN — cert CN устройства для доставки задачи / старта remote-desktop. Tenant-scoped:
+// RD-хендлер (jwt, скоуплен) на чужое устройство получит ErrNoRows → сессия не стартует; worker
+// доставки задач идёт БЕЗ scope (nil) → предикат пропускает → работает как раньше.
 func (db *DB) GetDeviceCN(ctx context.Context, deviceID string) (string, error) {
 	var cn string
 	err := db.pool.QueryRow(ctx,
-		`SELECT COALESCE(cert_cn, '') FROM devices WHERE id = $1`, deviceID).Scan(&cn)
+		`SELECT COALESCE(cert_cn, '') FROM devices WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+		deviceID, scopeParam(ctx)).Scan(&cn)
 	return cn, err
 }
 
@@ -2053,15 +2057,23 @@ func (db *DB) DeleteDeviceGroup(ctx context.Context, id string) error {
 // AddDeviceToGroup — несуществующее устройство/группа = ErrForeignKeyViolation (→400),
 // а не «internal error». То же у AssignPolicyToGroup / AssignSoftwarePolicyToGroup.
 func (db *DB) AddDeviceToGroup(ctx context.Context, deviceID, groupID string) error {
-	// tenant-scope device-стороны: группы deployment-shared, но добавить в них можно только СВОЁ
-	// устройство (иначе скоупленный админ подтянул бы чужое устройство под груп-политики/скрипты).
-	// Устройство вне тенанта → SELECT пуст → тихий no-op; несуществующая группа → FK → 400.
+	// tenant-guard device-стороны: группы deployment-shared, но добавить в них можно только
+	// ВИДИМОЕ актору устройство (существует И в его тенанте). Невидимое (нет устройства ИЛИ чужой
+	// тенант) → ErrForeignKeyViolation (→400) — совпадает с прежним FK на INSERT (unknown → 400) и
+	// не даёт скоупленному актору отличить «нет устройства» от «не твой тенант» / подтянуть чужое.
+	var ok bool
+	if err := db.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM devices WHERE id=$1 AND ($2::uuid IS NULL OR tenant_id=$2::uuid))`,
+		deviceID, scopeParam(ctx)).Scan(&ok); err != nil {
+		return err
+	}
+	if !ok {
+		return ErrForeignKeyViolation
+	}
 	_, err := db.pool.Exec(ctx,
-		`INSERT INTO device_group_members (device_id, group_id)
-		 SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM devices WHERE id=$1 AND ($3::uuid IS NULL OR tenant_id=$3::uuid))
-		 ON CONFLICT DO NOTHING`,
-		deviceID, groupID, scopeParam(ctx))
-	return wrapFKViolation(err)
+		`INSERT INTO device_group_members (device_id, group_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+		deviceID, groupID)
+	return wrapFKViolation(err) // несуществующая ГРУППА ($2 FK) → 400
 }
 
 func (db *DB) RemoveDeviceFromGroup(ctx context.Context, deviceID, groupID string) error {
@@ -2283,9 +2295,10 @@ func (db *DB) ListScriptResultsByPolicy(ctx context.Context, policyID string, li
 		FROM script_results r
 		LEFT JOIN devices d ON d.id = r.device_id
 		WHERE r.policy_id = $1
+		  AND ($3::uuid IS NULL OR d.tenant_id = $3::uuid)   -- tenant-scope: stdout/stderr только своих устройств
 		ORDER BY r.created_at DESC
 		LIMIT $2
-	`, policyID, limit)
+	`, policyID, limit, scopeParam(ctx))
 	if err != nil {
 		return nil, err
 	}

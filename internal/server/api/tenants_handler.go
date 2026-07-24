@@ -19,19 +19,39 @@ import (
 // дефисами (без ведущего/замыкающего дефиса и без двойных). Валиден напр. "acme", "acme-ru".
 var slugRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
-// TenantsRoutes монтирует управление тенантами (enterprise-фича «мультитенантность», MVP:
-// модель тенантов + назначение сущностей). Гейт по лицензии в КАЖДОМ хендлере: без активной
-// лицензии на фичу — 402, БД не трогаем. Ставится через WithAdminRoutes (it_admin) — это
-// организационная структура парка. В open-core роутов нет вовсе (404).
+// requireProvider отбивает НЕ-провайдер-акторов (скоупленных на конкретный не-Default тенант)
+// от управления тенантами. CRUD тенантов и назначение сущностей — кросс-тенантные операции,
+// доступные ТОЛЬКО провайдеру (актор в Default-тенанте → jwtMiddleware не ставит scope →
+// TenantScoped=false). Без этого гарда скоупленный it_admin тенанта B мог бы вызвать
+// POST /tenants/{DefaultTenantID}/assign со СВОИМ user_id, перевести себя в Default и стать
+// провайдером (эскалация до кросс-тенантного доступа ко всему парку). requireRole("it_admin")
+// в WithAdminRoutes этого НЕ ловит — он про роль, а не про тенант актора.
+func requireProvider(w http.ResponseWriter, req *http.Request) bool {
+	if storage.TenantScoped(req.Context()) {
+		http.Error(w, "tenant management is restricted to the provider (default tenant)", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+// TenantsRoutes монтирует управление тенантами (enterprise-фича «мультитенантность»): CRUD
+// тенантов + назначение устройств/юзеров. Гейт по лицензии в КАЖДОМ хендлере (402 без фичи) +
+// requireProvider (403 для скоупленного не-Default актора). Ставится через WithAdminRoutes
+// (it_admin). В open-core роутов нет (404).
 //
-// ⚠ SCOPE: это ФУНДАМЕНТ. ПОЛНАЯ изоляция данных (scoping каждого запроса к
-// devices/users/tasks/... по tenant_id текущего актора) — большой cross-cutting рефактор и
-// он FOLLOW-UP; здесь не делается. Сейчас: CRUD тенантов + назначение устройств/юзеров.
+// SCOPE: управление тенантами — КРОСС-ТЕНАНТНАЯ операция, поэтому доступна только провайдеру
+// (актор в Default-тенанте, нескоуплен) — см. requireProvider. Per-query изоляция ДАННЫХ
+// (devices/users/tasks/…) по tenant_id актора реализована отдельно (storage/tenant_scope.go,
+// docs/multitenancy-scoping.md); эти управляющие ручки намеренно НЕ скоупятся (провайдер видит
+// и назначает всех), а от не-провайдера закрыты гейтом.
 func TenantsRoutes(mgr *license.Manager) func(*Handler, chi.Router) {
 	return func(h *Handler, r chi.Router) {
 		r.Get("/tenants", func(w http.ResponseWriter, req *http.Request) {
 			if !mgr.Has(license.FeatureMultitenancy) {
 				http.Error(w, "multitenancy requires an active Enterprise license", http.StatusPaymentRequired)
+				return
+			}
+			if !requireProvider(w, req) {
 				return
 			}
 			tenants, err := h.db.ListTenants(req.Context())
@@ -48,6 +68,9 @@ func TenantsRoutes(mgr *license.Manager) func(*Handler, chi.Router) {
 		r.Post("/tenants", func(w http.ResponseWriter, req *http.Request) {
 			if !mgr.Has(license.FeatureMultitenancy) {
 				http.Error(w, "multitenancy requires an active Enterprise license", http.StatusPaymentRequired)
+				return
+			}
+			if !requireProvider(w, req) {
 				return
 			}
 			var body struct {
@@ -89,6 +112,9 @@ func TenantsRoutes(mgr *license.Manager) func(*Handler, chi.Router) {
 				http.Error(w, "multitenancy requires an active Enterprise license", http.StatusPaymentRequired)
 				return
 			}
+			if !requireProvider(w, req) {
+				return
+			}
 			id := chi.URLParam(req, "id")
 			var body struct {
 				Name string `json:"name"`
@@ -127,6 +153,9 @@ func TenantsRoutes(mgr *license.Manager) func(*Handler, chi.Router) {
 				http.Error(w, "multitenancy requires an active Enterprise license", http.StatusPaymentRequired)
 				return
 			}
+			if !requireProvider(w, req) {
+				return
+			}
 			id := chi.URLParam(req, "id")
 			switch err := h.db.DeleteTenant(req.Context(), id); {
 			case err == nil:
@@ -156,6 +185,9 @@ func TenantsRoutes(mgr *license.Manager) func(*Handler, chi.Router) {
 		r.Post("/tenants/{id}/assign", func(w http.ResponseWriter, req *http.Request) {
 			if !mgr.Has(license.FeatureMultitenancy) {
 				http.Error(w, "multitenancy requires an active Enterprise license", http.StatusPaymentRequired)
+				return
+			}
+			if !requireProvider(w, req) {
 				return
 			}
 			id := chi.URLParam(req, "id")

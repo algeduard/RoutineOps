@@ -95,6 +95,18 @@ func TestTenantScopeIsolation(t *testing.T) {
 	if found, _ := db.SetDeviceUpdateChannel(ctxA, devA.ID, "beta"); !found {
 		t.Fatal("SetDeviceUpdateChannel: tenant A должен менять канал своего устройства")
 	}
+
+	// ── GetDeviceCN кросс-тенант → ErrNoRows (блокирует remote-desktop на чужое устройство) ──
+	if _, err := db.GetDeviceCN(ctxB, devA.ID); err == nil {
+		t.Fatal("GetDeviceCN: tenant B не должен резолвить CN устройства тенанта A (RD-сессия)")
+	}
+	if _, err := db.GetDeviceCN(ctxA, devA.ID); err != nil {
+		t.Fatalf("GetDeviceCN: tenant A должен резолвить CN своего устройства: %v", err)
+	}
+	// Провайдер/нескоуплено (как worker доставки задач) → резолвит любое устройство.
+	if _, err := db.GetDeviceCN(ctx, devA.ID); err != nil {
+		t.Fatalf("GetDeviceCN: нескоупленный (worker) должен резолвить любое устройство: %v", err)
+	}
 }
 
 func listDeviceIDs(t *testing.T, db *storage.DB, ctx context.Context) map[string]bool {

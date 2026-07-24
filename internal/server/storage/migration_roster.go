@@ -138,11 +138,11 @@ func (db *DB) MigrationRosterForDevice(ctx context.Context, deviceID string) (*M
 		SELECT r.id, r.batch_label, r.hostname, r.serial_number, r.assigned_user, r.asset_tag,
 		       r.group_hint, r.notes, r.source_mdm, r.imported_at, r.imported_by
 		FROM device_migration_roster r
-		JOIN devices d ON d.id = $1
+		JOIN devices d ON d.id = $1 AND ($2::uuid IS NULL OR d.tenant_id = $2::uuid)
 		WHERE (r.serial_number <> '' AND lower(r.serial_number) = lower(d.serial_number))
 		   OR (r.serial_number = '' AND r.hostname <> '' AND lower(r.hostname) = lower(d.hostname))
 		ORDER BY (r.serial_number <> '') DESC, r.imported_at DESC
-		LIMIT 1`, deviceID).Scan(&e.ID, &e.BatchLabel, &e.Hostname, &e.SerialNumber, &e.AssignedUser,
+		LIMIT 1`, deviceID, scopeParam(ctx)).Scan(&e.ID, &e.BatchLabel, &e.Hostname, &e.SerialNumber, &e.AssignedUser,
 		&e.AssetTag, &e.GroupHint, &e.Notes, &e.SourceMDM, &e.ImportedAt, &e.ImportedBy)
 	if err != nil {
 		if err == pgx.ErrNoRows {
