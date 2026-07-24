@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/Floodww/RoutineOps/internal/server/storage"
 )
 
 // MFA enforce-by-policy — БАЗОВАЯ фича (не за лицензией), надстройка над добровольным TOTP
@@ -138,6 +140,18 @@ func (h *Handler) setMFAPolicy(w http.ResponseWriter, r *http.Request) {
 	if !validMFAPolicyRole(role) {
 		http.Error(w, "mfa_required_role must be '', 'it_admin', or 'all'", http.StatusBadRequest)
 		return
+	}
+	// Анти-локаут: не включаем принуждение MFA, если сервер не может НИКОГО заенроллить. Без
+	// ROUTINEOPS_MFA_ENC_KEY enroll/confirm отдают 503 (шифровать секрет нечем), и попавшие под
+	// политику (включая ВСЕХ админов) заперлись бы без внутриигрового выхода — recovery только
+	// через SQL/рестарт. Пустой ключ — дефолт поставки (main.go лишь предупреждает, не падает),
+	// поэтому проверяем ДО записи. Отключение (role=="") всегда разрешено, чтобы можно было снять
+	// уже включённую политику, даже если ключ позже пропал.
+	if role != "" {
+		if ok, _ := storage.MFAEncKeyStatus(); !ok {
+			http.Error(w, "cannot enforce MFA: ROUTINEOPS_MFA_ENC_KEY is not configured — users could not enroll and would be locked out", http.StatusConflict)
+			return
+		}
 	}
 	if err := h.db.SetMFARequiredRole(r.Context(), role); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

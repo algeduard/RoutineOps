@@ -214,21 +214,31 @@ func (db *DB) ApplyPolicyDeclaration(ctx context.Context, rules []DesiredPolicyR
 	}
 
 	// Удаляем лишние: только глобальные правила, которых нет в декларации. Матчим по
-	// (software_name, rule_type) + сравнение платформ в приложении здесь не нужно — удаляем
-	// по каноничному совпадению, поэтому чистим точечно по строкам, попавшим в ToDelete.
+	// (software_name, rule_type) + платформам. platforms сравниваем как МНОЖЕСТВО (сортируем обе
+	// стороны), а НЕ как массив в порядке хранения: у software_policy_rules нет UNIQUE, поэтому в
+	// БД могут лежать два физических дубля одного правила с разным порядком платформ
+	// ({Windows,macOS} vs {macOS,Windows}); listGlobalPolicyRules схлопывает их в один каноничный
+	// ключ, и точное array-сравнение удалило бы лишь одну строку — второй дубль пережил бы
+	// reconcile, а дрейф ложно показывал бы «в синхроне». Канонизация в '{}' NULL/пустого набора
+	// делает сравнение NULL-безопасным. deleted считаем по РЕАЛЬНО удалённым строкам.
+	deletedRows := 0
 	for _, r := range drift.ToDelete {
 		var plat interface{}
 		if len(r.Platforms) > 0 {
 			plat = r.Platforms
 		}
-		// platforms сравниваем как массив: NULL-безопасно через IS NOT DISTINCT FROM.
-		if _, err := tx.Exec(ctx, `
+		ct, derr := tx.Exec(ctx, `
   DELETE FROM software_policy_rules
   WHERE device_id IS NULL AND group_id IS NULL
     AND software_name = $1 AND rule_type = $2
-    AND platforms IS NOT DISTINCT FROM $3::text[]`, r.SoftwareName, r.RuleType, plat); err != nil {
-			return 0, 0, err
+    AND (SELECT COALESCE(array_agg(x ORDER BY x), '{}') FROM unnest(platforms) x)
+        IS NOT DISTINCT FROM
+        (SELECT COALESCE(array_agg(x ORDER BY x), '{}') FROM unnest($3::text[]) x)`,
+			r.SoftwareName, r.RuleType, plat)
+		if derr != nil {
+			return 0, 0, derr
 		}
+		deletedRows += int(ct.RowsAffected())
 	}
 
 	content, err := json.Marshal(rules)
@@ -238,12 +248,12 @@ func (db *DB) ApplyPolicyDeclaration(ctx context.Context, rules []DesiredPolicyR
 	if _, err := tx.Exec(ctx, `
   INSERT INTO policy_declaration (content, rule_count, created, deleted, applied_by)
   VALUES ($1, $2, $3, $4, $5)`,
-		content, len(desired), len(drift.ToCreate), len(drift.ToDelete), appliedBy); err != nil {
+		content, len(desired), len(drift.ToCreate), deletedRows, appliedBy); err != nil {
 		return 0, 0, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return 0, 0, err
 	}
-	return len(drift.ToCreate), len(drift.ToDelete), nil
+	return len(drift.ToCreate), deletedRows, nil
 }

@@ -59,14 +59,22 @@ func CVEFeedSourceRoutes(mgr *license.Manager) func(*Handler, chi.Router) {
 				return
 			}
 			body.URL = strings.TrimSpace(body.URL)
-			// При включении требуем валидный http(s)-URL: иначе фоновый синкер тихо ничего не
-			// тянул бы. Внутренние адреса РАЗРЕШЕНЫ намеренно — фид-прокси часто в закрытом контуре.
-			if body.Enabled {
+			// Валидируем http(s)-URL ВСЕГДА, когда он задан (не только при enabled): форс-синк
+			// POST /cve/feed-source/sync намеренно игнорирует enabled и тянет СОХРАНЁННЫЙ URL,
+			// поэтому невалидный URL, отложенный «выключенным», всё равно был бы запрошен сервером.
+			// Пустой URL допустим (очистка источника). Внутренние адреса РАЗРЕШЕНЫ намеренно —
+			// фид-прокси часто в закрытом контуре.
+			if body.URL != "" {
 				u, err := url.Parse(body.URL)
 				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-					http.Error(w, "url must be a valid http(s) URL when enabled", http.StatusBadRequest)
+					http.Error(w, "url must be a valid http(s) URL", http.StatusBadRequest)
 					return
 				}
+			}
+			// Включать источник без URL нельзя — фоновый синкер тихо ничего не тянул бы.
+			if body.Enabled && body.URL == "" {
+				http.Error(w, "url is required when enabling the feed source", http.StatusBadRequest)
+				return
 			}
 			if body.SyncIntervalHours < minIntervalHours {
 				body.SyncIntervalHours = minIntervalHours

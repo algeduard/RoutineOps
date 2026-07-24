@@ -166,6 +166,48 @@ func TestSyncUnreachableSource(t *testing.T) {
 	}
 }
 
+// Пустой УСПЕШНЫЙ ответ источника (HTTP 200 с телом '[]') НЕ стирает существующий фид: это
+// доброкачественный сбой апстрима, а не команда «очистить». Фид сохраняется, last_status = error,
+// Sync возвращает err == nil.
+func TestSyncEmptyFeedPreservesExisting(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+
+	body := validFeed
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, body)
+	}))
+	defer srv.Close()
+
+	if err := db.SetCVEFeedSource(ctx, srv.URL, 24, true, false); err != nil {
+		t.Fatalf("SetCVEFeedSource: %v", err)
+	}
+	// Первый синк грузит валидный фид (2 записи).
+	if _, _, err := Sync(ctx, db, srv.Client()); err != nil {
+		t.Fatalf("first Sync: %v", err)
+	}
+	if n, _ := db.CVEFeedCount(ctx); n != 2 {
+		t.Fatalf("после первого синка в фиде %d записей, want 2", n)
+	}
+
+	// Источник теперь отдаёт пустой массив — фид должен СОХРАНИТЬСЯ.
+	body = `[]`
+	loaded, status, err := Sync(ctx, db, srv.Client())
+	if err != nil {
+		t.Fatalf("Sync пустого фида вернул err (должно быть nil): %v", err)
+	}
+	if loaded != 0 {
+		t.Fatalf("loaded = %d, want 0", loaded)
+	}
+	if len(status) < 5 || status[:5] != "error" {
+		t.Fatalf("status пустого фида = %q, want error...", status)
+	}
+	if n, _ := db.CVEFeedCount(ctx); n != 2 {
+		t.Fatalf("пустой фид не должен стирать существующий: got %d, want 2", n)
+	}
+}
+
 // due: никогда не синкали → true; свежий синк при большом интервале → false; давний → true.
 func TestDue(t *testing.T) {
 	now := time.Now()

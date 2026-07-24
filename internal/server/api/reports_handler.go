@@ -150,6 +150,12 @@ func writeReportCSV(w io.Writer, header []string, run func(emit func([]string) e
 		}
 		return cw.Write(safe)
 	})
+	if runErr != nil {
+		// Стрим прервался на полпути (ошибка БД). Клиент уже получил 200 OK и частичный CSV —
+		// пишем финальную маркер-строку, чтобы потребитель (CI/GitOps-скрипт) увидел усечение,
+		// а не принял неполную выгрузку за полную (паритет с HTML-баннером writeReportHTML).
+		_ = cw.Write([]string{"#ERROR: report interrupted — data may be incomplete"})
+	}
 	cw.Flush()
 	if runErr != nil {
 		return runErr

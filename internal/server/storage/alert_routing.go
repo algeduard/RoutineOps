@@ -145,6 +145,12 @@ func (db *DB) MarkAlertRouted(ctx context.Context, alertID string) error {
 // ListEscalatableAlerts отдаёт кандидатов на эскалацию: НЕпринятые critical-алерты, уже
 // прошедшие первичную маршрутизацию (routed_at IS NOT NULL). Порог по времени и анти-спам
 // (last_escalated_at) проверяет вызывающий по escalate_after_minutes каждого правила.
+//
+// ОГРАНИЧЕНИЕ (осознанное): выборка ограничена LIMIT (200) и упорядочена created_at ASC, а курсор
+// (в отличие от routeNew) НЕ сдвигается — каждый тик пересматриваются самые старые непринятые
+// critical. При патологическом бэклоге (>200 одновременно непринятых critical) 201-й по новизне
+// не эскалируется, пока не примут/не рассосутся более старые. На практике непринятых critical
+// столько не копится (эскалация как раз и торопит их принять); durable-курсор здесь — follow-up.
 func (db *DB) ListEscalatableAlerts(ctx context.Context, limit int) ([]RoutableAlert, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200

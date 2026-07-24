@@ -109,6 +109,50 @@ func TestRemediateEnabledCreatesTaskAndLog(t *testing.T) {
 	}
 }
 
+// Cooldown-дедуп: задача удаления ушла в ТЕРМИНАЛЬНЫЙ статус (failed — напр. ПО удалить нельзя),
+// а нарушение осталось в инвентаре. Открытой задачи больше нет, но ремедиатор НЕ плодит новую на
+// каждом тике — держит cooldown по недавней 'removed'-записи; повтор только за пределами окна.
+func TestRemediateCooldownAfterTerminalTask(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+	app := "EvilApp"
+	dev := dirtyDevice(t, db, "rem-cool", app)
+	if _, err := db.CreatePolicyRule(ctx, app, "forbidden", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetAutoRemediationConfig(ctx, true, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// Первый тик создаёт задачу.
+	newRemediator(db, true).tick()
+	if got := countRemoveTasks(t, db, dev); got != 1 {
+		t.Fatalf("ожидали 1 задачу после первого тика, got %d", got)
+	}
+	// Задача уходит в failed (ПО удалить не удалось), но device_software не очищен.
+	if _, err := db.Pool().Exec(ctx,
+		`UPDATE tasks SET status = 'failed' WHERE device_id = $1 AND task_type = 'remove_software'`, dev); err != nil {
+		t.Fatal(err)
+	}
+
+	// Тик в пределах cooldown: открытой задачи нет, но недавняя 'removed'-запись держит cooldown —
+	// второй задачи НЕ создаём (иначе спам на каждом тике для неустранимого ПО).
+	newRemediator(db, true).tick()
+	if got := countRemoveTasks(t, db, dev); got != 1 {
+		t.Fatalf("в пределах cooldown ожидали всё ещё 1 задачу, got %d", got)
+	}
+
+	// Сдвигаем лог за пределы cooldown (6ч) → повторная попытка разрешена.
+	if _, err := db.Pool().Exec(ctx,
+		`UPDATE auto_remediation_log SET created_at = now() - interval '7 hours' WHERE device_id = $1 AND action = 'removed'`, dev); err != nil {
+		t.Fatal(err)
+	}
+	newRemediator(db, true).tick()
+	if got := countRemoveTasks(t, db, dev); got != 2 {
+		t.Fatalf("за пределами cooldown ожидали повторную задачу (2), got %d", got)
+	}
+}
+
 // enabled=false: ничего не делаем (задач и лога нет).
 func TestRemediateDisabledDoesNothing(t *testing.T) {
 	db := newDB(t)

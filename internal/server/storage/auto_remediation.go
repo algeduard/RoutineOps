@@ -149,6 +149,26 @@ func (db *DB) HasDryRunRemediationLog(ctx context.Context, deviceID, softwareNam
 	return exists, err
 }
 
+// HasRecentRemovalRemediation сообщает, ставили ли мы РЕАЛЬНУЮ задачу удаления по этой паре
+// (устройство, ПО) не раньше since. Это cooldown-дедуп реального режима В ДОПОЛНЕНИЕ к дедупу по
+// открытой задаче (HasOpenRemoveSoftwareTask). Зачем нужен: remove_software-задача уходит в
+// ТЕРМИНАЛЬНЫЙ статус (completed/failed) сразу после доставки, а device_software чистится лишь
+// СЛЕДУЮЩИМ отчётом инвентаря агента И ЛИШЬ если удаление реально удалось. Для ПО, которое
+// удалить нельзя (non-Windows removeSoftware всегда возвращает ошибку → задача failed; Windows-
+// приложение без UninstallString), нарушение висит в инвентаре вечно, дедуп по pending/acked
+// больше не матчит — и без этого cooldown ремедиатор плодил бы новую задачу и строку лога на
+// КАЖДОМ тике (5 мин) бесконечно. С cooldown повторная попытка — не чаще раза в окно.
+func (db *DB) HasRecentRemovalRemediation(ctx context.Context, deviceID, softwareName string, since time.Time) (bool, error) {
+	var exists bool
+	err := db.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM auto_remediation_log
+			WHERE device_id = $1 AND software_name = $2 AND action = 'removed'
+			  AND created_at >= $3
+		)`, deviceID, softwareName, since).Scan(&exists)
+	return exists, err
+}
+
 // RemediationLogEntry — строка лога ремедиаций (GET /auto-remediation/log). TaskID пуст у
 // dry_run-записей (задача не создавалась).
 type RemediationLogEntry struct {

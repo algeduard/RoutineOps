@@ -64,6 +64,32 @@ func TestMFAPolicyDefaultAndValidation(t *testing.T) {
 	}
 }
 
+// Анти-локаут: включить принуждение MFA нельзя, пока не сконфигурирован ROUTINEOPS_MFA_ENC_KEY —
+// иначе enroll отдавал бы 503 (шифровать секрет нечем) и попавшие под политику заперлись бы без
+// внутриигрового выхода. Отключение (пусто) разрешено всегда.
+func TestMFAPolicyRefusedWithoutEncKey(t *testing.T) {
+	t.Setenv("ROUTINEOPS_MFA_ENC_KEY", "") // ключ НЕ сконфигурирован
+	rtr, db := newRouterWithDB(t)
+	resetMFAPolicyOnCleanup(t, db)
+	adminTok := tokenForRole(t, rtr, db, "it_admin", "mfapolnokey_")
+
+	// Включение без ключа → 409, политика не меняется.
+	put, _ := json.Marshal(map[string]string{"mfa_required_role": "it_admin"})
+	if w := authedDo(t, rtr, http.MethodPut, "/api/v1/settings/mfa-policy", put, adminTok); w.Code != http.StatusConflict {
+		t.Fatalf("enable without enc key: got %d, want 409", w.Code)
+	}
+	w := authedDo(t, rtr, http.MethodGet, "/api/v1/settings/mfa-policy", nil, adminTok)
+	if got := getMFAPolicyValue(t, w.Result()); got != "" {
+		t.Fatalf("policy after refused enable = %q, want '' (off)", got)
+	}
+
+	// Отключение (пусто) разрешено даже без ключа — снять уже включённую политику всегда можно.
+	off, _ := json.Marshal(map[string]string{"mfa_required_role": ""})
+	if w := authedDo(t, rtr, http.MethodPut, "/api/v1/settings/mfa-policy", off, adminTok); w.Code != http.StatusOK {
+		t.Fatalf("disable without enc key: got %d, want 200; %s", w.Code, w.Body)
+	}
+}
+
 // Политика 'it_admin' + админ без MFA → мутирующая ручка 403 mfa_required, но allowlist
 // (включение MFA, /me, /me/mfa) доступен.
 func TestMFAPolicyGatesAdminWithoutMFA(t *testing.T) {

@@ -143,6 +143,19 @@ func Sync(ctx context.Context, db *storage.DB, client *http.Client) (loaded int,
 		return 0, status, nil // источник недоступен ≠ отказ сервера
 	}
 
+	// Защита от разрушительной замены пустым фидом: доброкачественный сбой апстрима/прокси может
+	// вернуть HTTP 200 с телом '[]' или 'null' — валидный, но пустой JSON. Безусловная замена
+	// стёрла бы ВЕСЬ фид и (при auto_scan) все находки — от внешних НЕдоверенных данных, — а
+	// last_synced_at заморозил бы ре-синк на весь интервал. Пустой фид трактуем как ошибку
+	// источника и СОХРАНЯЕМ существующий. Осознанная очистка — отдельное действие: DELETE /cve/feed.
+	if len(entries) == 0 {
+		status = "error: источник вернул пустой фид (0 записей) — существующий фид сохранён"
+		if merr := db.MarkCVEFeedSourceSynced(ctx, status); merr != nil {
+			return 0, "", merr
+		}
+		return 0, status, nil
+	}
+
 	n, lerr := db.LoadCVEFeed(ctx, entries)
 	if lerr != nil {
 		return 0, "", lerr
