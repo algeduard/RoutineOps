@@ -26,4 +26,7 @@ const (
 	// FeatureAlertRouting — маршрутизация алертов по уровню критичности (эскалация,
 	// доставка в telegram/webhook по правилам).
 	FeatureAlertRouting = "alert_routing"
+	// FeatureReports — экспортируемые отчёты (CSV / печатный HTML→PDF) по существующим
+	// данным: устройства, инвентарь ПО, журнал аудита, алерты.
+	FeatureReports = "reports"
 )

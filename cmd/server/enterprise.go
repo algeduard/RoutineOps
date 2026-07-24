@@ -116,6 +116,8 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 		api.WithAdminRoutes(api.TenantsRoutes(mgr)),
 		// Правила маршрутизации алертов (доставку по ним делает фоновый маршрутизатор выше).
 		api.WithAdminRoutes(api.AlertRoutingRoutes(mgr)),
+		// Экспортируемые отчёты (CSV / печатный HTML→PDF) по существующим данным.
+		api.WithAdminRoutes(api.ReportsRoutes(mgr)),
 		// /capabilities — какие enterprise-фичи активны (веб гейтит по ним UI). Все роли.
 		api.WithRoutes(api.CapabilitiesRoutes(mgr)),
 	}

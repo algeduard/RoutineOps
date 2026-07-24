@@ -209,6 +209,7 @@ export interface Capabilities {
   multitenancy: boolean
   scim: boolean
   alert_routing: boolean
+  reports: boolean
 }
 
 // ComplianceCheck — одна проверка соответствия в отчёте (GET /compliance/report,
