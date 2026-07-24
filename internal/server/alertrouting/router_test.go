@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -220,5 +221,26 @@ func TestEscalationReDelivers(t *testing.T) {
 	r.tick()
 	if tg.count() != 1 {
 		t.Fatalf("повторный тик не должен спамить: доставок = %d, want 1", tg.count())
+	}
+}
+
+// Device-контролируемые поля (hostname/AlertType/Details) должны быть HTML-экранированы:
+// иначе битый HTML → Telegram 400 → тихая потеря алерта, либо инъекция разметки/фишинга.
+func TestFormatTelegramEscapesDeviceFields(t *testing.T) {
+	a := storage.RoutableAlert{
+		Severity:       "critical",
+		AlertType:      "forbidden_software",
+		DeviceHostname: "host<b>x",
+		Details:        `<a href="http://evil">click</a> A<B & C`,
+	}
+	msg := formatTelegram(a, false)
+	if strings.Contains(msg, "<a href") || strings.Contains(msg, "<b>x") {
+		t.Fatalf("неэкранированная device-разметка в сообщении: %s", msg)
+	}
+	if !strings.Contains(msg, "&lt;a href") || !strings.Contains(msg, "A&lt;B") {
+		t.Fatalf("device-поля должны быть экранированы: %s", msg)
+	}
+	if !strings.Contains(msg, "<code>") || !strings.Contains(msg, "<b>") {
+		t.Fatalf("свои теги (<code>/<b>) должны сохраниться: %s", msg)
 	}
 }

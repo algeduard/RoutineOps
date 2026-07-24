@@ -100,7 +100,7 @@ func (db *DB) ComplianceReport(ctx context.Context) (ComplianceReport, error) {
 	// it_admin без 2FA — критичная находка: любой такой аккаунт валит проверку в fail
 	// (passAt=warnAt=1.0). Область — только console-роли (validRoles), сервисные токены
 	// (api_tokens) сюда не входят: у них своя аутентификация, не пароль+TOTP.
-	p, tot, err := pair(`SELECT count(*) FILTER (WHERE totp_enabled), count(*) FROM users WHERE role = 'it_admin'`)
+	p, tot, err := pair(`SELECT count(*) FILTER (WHERE totp_enabled), count(*) FROM users WHERE role = 'it_admin' AND is_active`)
 	if err != nil {
 		return rep, err
 	}
@@ -109,7 +109,7 @@ func (db *DB) ComplianceReport(ctx context.Context) (ComplianceReport, error) {
 
 	// Более широкий охват: все console-пользователи (it_admin + viewer) c MFA. Не
 	// критично (viewer только читает) — мягкий порог, но низкая доля тянет скор вниз.
-	p, tot, err = pair(`SELECT count(*) FILTER (WHERE totp_enabled), count(*) FROM users WHERE role IN ('it_admin','viewer')`)
+	p, tot, err = pair(`SELECT count(*) FILTER (WHERE totp_enabled), count(*) FROM users WHERE role IN ('it_admin','viewer') AND is_active`)
 	if err != nil {
 		return rep, err
 	}

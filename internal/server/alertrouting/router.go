@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -132,6 +133,12 @@ func (r *Router) escalate(ctx context.Context, enabled []storage.AlertRoutingRul
 		return
 	}
 	now := time.Now()
+	// ОГРАНИЧЕНИЕ (осознанное, MVP): анти-спам считается по ЕДИНОЙ на алерт колонке
+	// last_escalated_at, а порог — у каждого правила свой. Если на один алерт матчатся
+	// НЕСКОЛЬКО правил эскалации с РАЗНЫМИ escalate_after_minutes, быстрое правило на каждом
+	// тике сбрасывает last_escalated_at, и медленное может не дозреть до своего порога. Для
+	// типового одного правила эскалации всё корректно. Правильный фикс — per-(alert,rule)
+	// состояние (таблица) — follow-up; здесь не делаем ради простоты MVP.
 	for _, a := range alerts {
 		escalated := false
 		for _, rule := range escRules {
@@ -233,8 +240,12 @@ func formatTelegram(a storage.RoutableAlert, escalation bool) string {
 	if host == "" {
 		host = a.DeviceID
 	}
+	// Экранируем интерполируемые поля: host/AlertType/Details приходят от устройства
+	// (SecurityEvent) и без escape ломали бы parse_mode=HTML (Telegram 400 → тихая потеря
+	// алерта) или инъектировали разметку/фишинг-ссылку в уведомление оператора.
 	return fmt.Sprintf("%s [%s]\nТип: %s\nУстройство: <code>%s</code>\nДетали: %s",
-		head, strings.ToUpper(a.Severity), a.AlertType, host, a.Details)
+		head, html.EscapeString(strings.ToUpper(a.Severity)), html.EscapeString(a.AlertType),
+		html.EscapeString(host), html.EscapeString(a.Details))
 }
 
 // redactURL убирает креды из URL (userinfo и query) перед логированием: target вебхука мог

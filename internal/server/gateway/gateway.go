@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"html"
 	"io"
 	"log/slog"
 	"net"
@@ -425,8 +426,11 @@ func (g *Gateway) ReportSecurityEvent(ctx context.Context, req *pb.SecurityEvent
 		if alertLabel == "" {
 			alertLabel = alertType
 		}
+		// Экранируем поля от устройства (hostname, Details) и alertLabel (при неизвестном типе
+		// = сырой alertType от агента): без escape битый HTML → Telegram 400 → тихая потеря
+		// уведомления, либо инъекция разметки/фишинг-ссылки в сообщение админам (parse_mode=HTML).
 		text := fmt.Sprintf("🚨 <b>Алерт безопасности</b>\nТип: %s\nУстройство: <code>%s</code>\nДетали: %s",
-			alertLabel, hostname, req.Details)
+			html.EscapeString(alertLabel), html.EscapeString(hostname), html.EscapeString(req.Details))
 		go g.bot.NotifyITAdmins(context.Background(), text)
 	}
 	return &pb.SecurityEventAck{Received: true}, nil

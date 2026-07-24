@@ -161,3 +161,23 @@ func mustReport(t *testing.T, db *storage.DB) storage.ComplianceReport {
 	}
 	return rep
 }
+
+// Деактивированный (SCIM-deprovisioned) юзер не должен учитываться в MFA-проверках: он не
+// может войти (is_active-гейт в login/jwtMiddleware), поэтому его MFA-статус к живой
+// security-позиции нерелевантен. Дельта-тест устойчив к накоплению юзеров в общей тест-БД.
+func TestComplianceMFAExcludesDeactivated(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+	before := findCheck(t, mustReport(t, db), "admin_mfa").Total
+	u, err := db.CreateUser(ctx, "Deact Admin", "deact-"+uniq(t)+"@test.com", "hash", "it_admin")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if _, err := db.Pool().Exec(ctx, `UPDATE users SET is_active = false WHERE id = $1`, u.ID); err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+	after := findCheck(t, mustReport(t, db), "admin_mfa").Total
+	if after != before {
+		t.Fatalf("деактивированный админ не должен учитываться: admin_mfa total before=%d after=%d", before, after)
+	}
+}

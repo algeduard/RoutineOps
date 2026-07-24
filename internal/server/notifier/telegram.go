@@ -142,7 +142,14 @@ func (b *Bot) send(chatID int64, text string) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	// Telegram отвергает битый HTML (parse_mode=HTML) с 400. Раньше статус игнорировался и
+	// return nil врал об успехе — доставка алерта тихо терялась, а маршрутизатор/эскалация
+	// шли дальше как будто доставили. Теперь non-2xx = ошибка (её логирует вызывающий).
+	// Тело НЕ включаем в ошибку: описание Telegram может отразить кусок текста сообщения.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("telegram sendMessage returned HTTP %d", resp.StatusCode)
+	}
 	return nil
 }
 

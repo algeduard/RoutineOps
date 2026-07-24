@@ -22,6 +22,12 @@ set -eu
 # скрипт оставался переносимым и при ручном запуске с Debian-хоста.
 if ( set -o pipefail ) 2>/dev/null; then set -o pipefail; fi
 
+# umask 077 ДО создания файлов: pg_dump пишет во временный db-*.dump.partial, и без этого
+# он создавался бы с umask по умолчанию (0644 под root в postgres:16-alpine) — весь дамп
+# (хеши паролей, TOTP-секреты, все данные) висел бы world-readable на время дампа (минуты),
+# а осиротевший после сбоя .partial — навсегда. С umask 077 и .partial, и итог = 0600.
+umask 077
+
 log() { echo "[backup $(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
@@ -54,7 +60,7 @@ log "backup done: $out ($(du -h "$out" 2>/dev/null | cut -f1))"
 
 # Ротация: удаляем СВОИ дампы старше N дней (mtime +N = строго старше N*24ч). 0 = выкл.
 if [ "$BACKUP_RETENTION_DAYS" -gt 0 ] 2>/dev/null; then
-  removed=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'db-*.dump' -mtime "+$BACKUP_RETENTION_DAYS" -print -delete | wc -l)
+  removed=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'db-*.dump*' -mtime "+$BACKUP_RETENTION_DAYS" -print -delete | wc -l)
   kept=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'db-*.dump' | wc -l)
   log "retention: removed $(echo "$removed" | tr -d ' ') dump(s) older than ${BACKUP_RETENTION_DAYS}d, kept $(echo "$kept" | tr -d ' ')"
 else
