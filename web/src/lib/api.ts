@@ -210,6 +210,7 @@ export interface Capabilities {
   scim: boolean
   alert_routing: boolean
   reports: boolean
+  policy_as_code: boolean
 }
 
 // ComplianceCheck — одна проверка соответствия в отчёте (GET /compliance/report,
@@ -608,6 +609,49 @@ export interface TelemetryConfig {
 // разными действиями в UI. Пустой features = вся редакция (семантика Claims.Has).
 // persist_warning приходит только с POST: лицензия применена live, но не легла на
 // диск и не переживёт рестарт — это не ошибка запроса, но молчать о ней нельзя.
+// Policy-as-code / GitOps (enterprise; в open-core роутов нет → 404). Декларативные
+// ГЛОБАЛЬНЫЕ software-правила: админ хранит желаемый набор как JSON source-of-truth, apply
+// реконсилит живые правила (создаёт недостающие, удаляет лишние), drift показывает
+// расхождение. platforms пусто = все платформы (та же семантика, что у software-политик).
+export interface DesiredPolicyRule {
+  software_name: string
+  rule_type: "allowed" | "forbidden"
+  platforms?: string[]
+}
+
+// PolicyDeclaration — сохранённая (последняя применённая) декларация. content — желаемые
+// правила; created/deleted — сколько правил создало/удалило ТО применение (для истории).
+export interface PolicyDeclaration {
+  id: string
+  content: DesiredPolicyRule[]
+  rule_count: number
+  created: number
+  deleted: number
+  applied_by: string
+  applied_at: string
+}
+
+// PolicyDrift — расхождение живых глобальных правил с сохранённой декларацией. to_create —
+// в декларации, но не в БД; to_delete — в БД, но не в декларации; in_sync — совпадающих.
+export interface PolicyDrift {
+  to_create: DesiredPolicyRule[]
+  to_delete: DesiredPolicyRule[]
+  in_sync: number
+}
+
+// GET /policy-as-code — текущая декларация (null, если ни разу не применяли) + дрейф.
+export interface PolicyAsCodeState {
+  declaration: PolicyDeclaration | null
+  drift: PolicyDrift
+}
+
+// POST /policy-as-code/apply — сводка применения.
+export interface PolicyApplyResult {
+  rules: number
+  created: number
+  deleted: number
+}
+
 export interface LicenseStatus {
   configured: boolean
   valid: boolean

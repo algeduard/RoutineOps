@@ -28,6 +28,7 @@ func CapabilitiesRoutes(mgr *license.Manager) func(*Handler, chi.Router) {
 				license.FeatureSCIM:            mgr.Has(license.FeatureSCIM),
 				license.FeatureAlertRouting:    mgr.Has(license.FeatureAlertRouting),
 				license.FeatureReports:         mgr.Has(license.FeatureReports),
+				license.FeaturePolicyAsCode:    mgr.Has(license.FeaturePolicyAsCode),
 			})
 		})
 	}

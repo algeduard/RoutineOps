@@ -118,6 +118,8 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 		api.WithAdminRoutes(api.AlertRoutingRoutes(mgr)),
 		// Экспортируемые отчёты (CSV / печатный HTML→PDF) по существующим данным.
 		api.WithAdminRoutes(api.ReportsRoutes(mgr)),
+		// Policy-as-code / GitOps: декларативные глобальные software-правила + детект дрейфа.
+		api.WithAdminRoutes(api.PolicyAsCodeRoutes(mgr)),
 		// /capabilities — какие enterprise-фичи активны (веб гейтит по ним UI). Все роли.
 		api.WithRoutes(api.CapabilitiesRoutes(mgr)),
 	}

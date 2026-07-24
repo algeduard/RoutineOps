@@ -29,4 +29,8 @@ const (
 	// FeatureReports — экспортируемые отчёты (CSV / печатный HTML→PDF) по существующим
 	// данным: устройства, инвентарь ПО, журнал аудита, алерты.
 	FeatureReports = "reports"
+	// FeaturePolicyAsCode — декларативные software-политики (GitOps): админ хранит желаемый
+	// набор глобальных software-правил как JSON source-of-truth, сервер реконсилит живые
+	// правила и показывает дрейф (расхождение живого состояния с декларацией).
+	FeaturePolicyAsCode = "policy_as_code"
 )

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom"
-import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy, ArrowRightLeft, Share2, ClipboardCheck, ShieldAlert, Building2, RefreshCw, Route as RouteIcon, FileBarChart2 } from "lucide-react"
+import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy, ArrowRightLeft, Share2, ClipboardCheck, ShieldAlert, Building2, RefreshCw, Route as RouteIcon, FileBarChart2, GitBranch } from "lucide-react"
 import { logout } from "@/lib/auth"
 import { RoutineOpsLogo } from "@/components/RoutineOpsLogo"
 import { useMe } from "@/lib/useMe"
@@ -27,6 +27,7 @@ const M = {
   navScripts: { ru: "Скрипты", en: "Scripts" },
   navScriptPolicies: { ru: "Политики скриптов", en: "Script policies" },
   navPolicies: { ru: "Политики", en: "Policies" },
+  navPolicyAsCode: { ru: "Policy-as-code", en: "Policy-as-code" },
   navCve: { ru: "Уязвимости", en: "Vulnerabilities" },
   navAccessRequests: { ru: "Заявки на права", en: "Access requests" },
   navProfile: { ru: "Профиль", en: "Profile" },
@@ -173,6 +174,8 @@ export default function Layout() {
         { to: "/scripts", label: t(M.navScripts), icon: FileCode2, badge: 0, adminOnly: true },
         { to: "/script-policies", label: t(M.navScriptPolicies), icon: ListChecks, badge: 0, adminOnly: true },
         { to: "/policies", label: t(M.navPolicies), icon: Shield, badge: 0, adminOnly: true },
+        // cap: enterprise-фича policy-as-code — видна только при активной лицензии (/capabilities).
+        { to: "/policy-as-code", label: t(M.navPolicyAsCode), icon: GitBranch, badge: 0, adminOnly: true, cap: "policy_as_code" },
         // cap: enterprise-фича CVE-скана — виден только при активной лицензии (/capabilities).
         { to: "/cve", label: t(M.navCve), icon: ShieldAlert, badge: 0, adminOnly: true, cap: "cve_scan" },
         { to: "/admin-access", label: t(M.navAccessRequests), icon: KeyRound, badge: pendingCount, adminOnly: true },
