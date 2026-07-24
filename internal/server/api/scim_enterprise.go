@@ -29,7 +29,7 @@ const (
 	scimListSchema     = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
 	scimErrorSchema    = "urn:ietf:params:scim:api:messages:2.0:Error"
 	scimPatchOpSchema  = "urn:ietf:params:scim:api:messages:2.0:PatchOp"
-	scimDefaultRole    = "viewer" // least privilege; маппинг ролей из SCIM-групп — follow-up
+	scimDefaultRole    = "viewer" // least-privilege baseline; групповой маппинг ролей — scim_role_mapping.go
 	scimActorEmail     = "scim"   // актор аудита: канал IdP, не человек
 	scimMaxPageSize    = 200
 	scimDefaultPageLen = 100
@@ -193,7 +193,10 @@ func (p *scimProvider) createUser(w http.ResponseWriter, r *http.Request) {
 	family := strings.TrimSpace(body.Name.FamilyName)
 	formatted := formatSCIMName(body.Name.Formatted, given, family, email)
 
-	u, err := p.db.CreateSCIMUser(r.Context(), email, given, family, formatted, scimDefaultRole, active)
+	// Роль из групп SCIM-маппинга (config: scim_role_mapping). present=false (нет поля groups)
+	// → default_role: it_admin недостижим без явной admin-группы (fail-closed).
+	role, _ := p.scimRole(r.Context(), body.Groups)
+	u, err := p.db.CreateSCIMUser(r.Context(), email, given, family, formatted, role, active)
 	if err != nil {
 		if errors.Is(err, storage.ErrSCIMUserExists) {
 			p.scimErrorTyped(w, http.StatusConflict, "uniqueness", "userName already exists")
@@ -203,7 +206,7 @@ func (p *scimProvider) createUser(w http.ResponseWriter, r *http.Request) {
 		p.scimError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	p.audit(r.Context(), "scim_user_created", u.ID, map[string]any{"email": u.UserName, "active": u.Active})
+	p.audit(r.Context(), "scim_user_created", u.ID, map[string]any{"email": u.UserName, "active": u.Active, "role": role})
 	w.Header().Set("Location", p.location(u.ID))
 	p.writeSCIM(w, http.StatusCreated, p.userResource(u))
 }
@@ -232,7 +235,8 @@ func (p *scimProvider) putUser(w http.ResponseWriter, r *http.Request, id string
 	given := strings.TrimSpace(body.Name.GivenName)
 	family := strings.TrimSpace(body.Name.FamilyName)
 	formatted := formatSCIMName(body.Name.Formatted, given, family, cur.UserName)
-	p.applyUpdate(w, r, cur, given, family, formatted, active)
+	// body.Groups nil (поля groups нет) → роль не трогаем; иначе пересчёт (см. reconcileRole).
+	p.applyUpdate(w, r, cur, given, family, formatted, active, body.Groups)
 }
 
 // patchUser — частичное обновление (SCIM PatchOp). Критичный путь — active=false (деактивация):
@@ -254,6 +258,10 @@ func (p *scimProvider) patchUser(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	given, family, active := cur.GivenName, cur.FamilyName, cur.Active
+	// groups остаётся nil, если патч не нёс членство в группах → роль не пересчитываем
+	// (fail-closed). Атрибутивное управление группами через PATCH (path:"groups" add/remove)
+	// в MVP не разбираем — только full-object патч (path:"") с полем groups.
+	var groups *[]scimGroupRef
 	for _, op := range body.Operations {
 		if op.opType() == "remove" {
 			continue // remove active/name в MVP не поддерживаем
@@ -279,11 +287,14 @@ func (p *scimProvider) patchUser(w http.ResponseWriter, r *http.Request, id stri
 				if obj.Name.FamilyName != "" {
 					family = strings.TrimSpace(obj.Name.FamilyName)
 				}
+				if obj.Groups != nil {
+					groups = obj.Groups
+				}
 			}
 		}
 	}
 	formatted := formatSCIMName("", given, family, cur.UserName)
-	p.applyUpdate(w, r, cur, given, family, formatted, active)
+	p.applyUpdate(w, r, cur, given, family, formatted, active, groups)
 }
 
 // deleteUser — SCIM DELETE трактуем как ДЕАКТИВАЦИЮ (is_active=false), не хард-удаление: аудит и
@@ -302,8 +313,10 @@ func (p *scimProvider) deleteUser(w http.ResponseWriter, r *http.Request, id str
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// applyUpdate пишет обновление и отдаёт ресурс; аудитит деактивацию отдельным событием.
-func (p *scimProvider) applyUpdate(w http.ResponseWriter, r *http.Request, cur *storage.SCIMUser, given, family, formatted string, active bool) {
+// applyUpdate пишет обновление (active+имя) и отдаёт ресурс; аудитит деактивацию отдельным
+// событием. groups (nil = поля groups в payload не было) управляет пересчётом роли SCIM-юзера:
+// reconcileRole трогает роль только auth_source='scim' и только при present-группах (fail-closed).
+func (p *scimProvider) applyUpdate(w http.ResponseWriter, r *http.Request, cur *storage.SCIMUser, given, family, formatted string, active bool, groups *[]scimGroupRef) {
 	u, err := p.db.UpdateSCIMUser(r.Context(), cur.ID, given, family, formatted, active)
 	if err != nil {
 		p.scimError(w, http.StatusInternalServerError, "internal error")
@@ -313,6 +326,9 @@ func (p *scimProvider) applyUpdate(w http.ResponseWriter, r *http.Request, cur *
 		p.scimError(w, http.StatusNotFound, "resource not found")
 		return
 	}
+	// Пересчёт роли из групп IdP (downgrade при отзыве admin-группы). До attr-аудита ниже:
+	// смену роли reconcileRole аудитит своим scim_user_updated.
+	p.reconcileRole(r.Context(), u, groups)
 	if cur.Active && !u.Active {
 		p.audit(r.Context(), "scim_user_deactivated", u.ID, map[string]any{"email": u.UserName, "via": "update"})
 	} else {
@@ -410,6 +426,11 @@ type scimUserPayload struct {
 		Primary bool   `json:"primary"`
 	} `json:"emails"`
 	Active *bool `json:"active"`
+	// Groups — членство в группах IdP (Okta/Azure AD шлют его в User-ресурсе). Указатель, а
+	// не срез, чтобы отличить ОТСУТСТВИЕ поля (nil → роль не пересчитываем, fail-closed) от
+	// ПУСТОГО массива (present → downgrade до default_role: группа отозвана). См.
+	// scim_role_mapping.go (scimRole/reconcileRole).
+	Groups *[]scimGroupRef `json:"groups"`
 }
 
 // resolveEmail — userName, иначе primary email, иначе первый email.

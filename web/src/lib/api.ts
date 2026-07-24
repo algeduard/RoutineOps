@@ -313,6 +313,16 @@ export interface SCIMToken {
   base_url: string
 }
 
+// SCIMRoleMapping — маппинг SCIM-групп на роли (GET/PUT /scim/role-mapping, enterprise).
+// admin_group_values — CSV значений групп (value/display из SCIM User.groups), дающих it_admin
+// (allowlist, fail-closed: пусто = it_admin через SCIM не выдаётся). default_role — роль всех
+// прочих (it_admin здесь запрещён: эскалация только явной группой).
+export interface SCIMRoleMapping {
+  admin_group_values: string
+  default_role: string
+  updated_at?: string
+}
+
 // AuditIntegrity — результат проверки целостности журнала аудита (GET /audit-log/verify,
 // enterprise; кейд хеш-цепочка). configured=false — подпись не настроена
 // (ROUTINEOPS_AUDIT_HMAC_KEY не задан). tampered — цепочка нарушена (модификация/удаление/

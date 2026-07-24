@@ -97,6 +97,8 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 		// SCIM: публичный провижининг-канал (WithSCIM) + админ-управление токеном (it_admin).
 		api.WithSCIM(scimProvider),
 		api.WithAdminRoutes(api.SCIMRoutes(mgr)),
+		// SCIM group→role mapping: настройка маппинга SCIM-групп на роли (it_admin).
+		api.WithAdminRoutes(api.SCIMRoleMappingRoutes(mgr)),
 		api.WithAdminRoutes(api.LicenseRoutes(mgr)),
 		// Удаление ПО из интерфейса — enterprise-фича за лицензией (mgr.Has внутри хендлера).
 		api.WithAdminRoutes(api.SoftwareRemovalRoutes(mgr)),

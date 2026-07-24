@@ -27,6 +27,7 @@ func scimRouter(t *testing.T, mgr *license.Manager) (http.Handler, *storage.DB) 
 		mailer.New("", "", "", "", "", false), false,
 		api.WithSCIM(api.NewSCIMProvider(db, mgr, "https://test.local")),
 		api.WithAdminRoutes(api.SCIMRoutes(mgr)),
+		api.WithAdminRoutes(api.SCIMRoleMappingRoutes(mgr)),
 		api.WithRoutes(api.CapabilitiesRoutes(mgr)))
 	return rtr, db
 }
