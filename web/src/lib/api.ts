@@ -211,6 +211,7 @@ export interface Capabilities {
   alert_routing: boolean
   reports: boolean
   policy_as_code: boolean
+  auto_remediation: boolean
 }
 
 // ComplianceCheck — одна проверка соответствия в отчёте (GET /compliance/report,
@@ -390,6 +391,27 @@ export interface AlertRoutingRule {
   target: string
   enabled: boolean
   escalate_after_minutes: number
+  created_at: string
+}
+
+// AutoRemediationConfig — настройка авто-устранения запрещённого ПО (GET/PUT
+// /auto-remediation/config, enterprise). enabled по умолчанию false (авто-удаление
+// деструктивно). dry_run — только логировать, что удалил бы, без создания задач удаления.
+export interface AutoRemediationConfig {
+  enabled: boolean
+  dry_run: boolean
+  updated_at: string
+}
+
+// RemediationLogEntry — запись лога ремедиаций (GET /auto-remediation/log, enterprise).
+// action: 'removed' (создана задача удаления, task_id заполнен) | 'dry_run' (только лог).
+export interface RemediationLogEntry {
+  id: string
+  device_id: string
+  hostname: string
+  software_name: string
+  task_id: string
+  action: "removed" | "dry_run"
   created_at: string
 }
 

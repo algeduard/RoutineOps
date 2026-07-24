@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom"
-import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy, ArrowRightLeft, Share2, ClipboardCheck, ShieldAlert, Building2, RefreshCw, Route as RouteIcon, FileBarChart2, GitBranch } from "lucide-react"
+import { LayoutDashboard, Monitor, Bell, Shield, LogOut, LogIn, KeyRound, FileCode2, ListChecks, Send, History, Sun, Moon, Users, Boxes, UserCircle, BadgeCheck, LifeBuoy, ArrowRightLeft, Share2, ClipboardCheck, ShieldAlert, Building2, RefreshCw, Route as RouteIcon, FileBarChart2, GitBranch, Wrench } from "lucide-react"
 import { logout } from "@/lib/auth"
 import { RoutineOpsLogo } from "@/components/RoutineOpsLogo"
 import { useMe } from "@/lib/useMe"
@@ -39,6 +39,7 @@ const M = {
   navScim: { ru: "SCIM-провижининг", en: "SCIM provisioning" },
   navAlertRouting: { ru: "Маршрутизация алертов", en: "Alert routing" },
   navReports: { ru: "Отчёты", en: "Reports" },
+  navAutoRemediation: { ru: "Авто-устранение ПО", en: "Auto-remediation" },
   secHosts: { ru: "Хосты", en: "Hosts" },
   secManagement: { ru: "Управление", en: "Management" },
   secSettings: { ru: "Настройки", en: "Settings" },
@@ -196,6 +197,7 @@ export default function Layout() {
         { to: "/alert-routing", label: t(M.navAlertRouting), icon: RouteIcon, badge: 0, adminOnly: true, cap: "alert_routing" },
         // cap: enterprise-фича экспортируемых отчётов — виден только при активной лицензии.
         { to: "/reports", label: t(M.navReports), icon: FileBarChart2, badge: 0, adminOnly: true, cap: "reports" },
+        { to: "/auto-remediation", label: t(M.navAutoRemediation), icon: Wrench, badge: 0, adminOnly: true, cap: "auto_remediation" },
       ],
     },
   ]

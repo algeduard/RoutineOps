@@ -13,6 +13,7 @@ import (
 	"github.com/Floodww/RoutineOps/internal/server/api"
 	"github.com/Floodww/RoutineOps/internal/server/cvesync"
 	"github.com/Floodww/RoutineOps/internal/server/gateway"
+	"github.com/Floodww/RoutineOps/internal/server/remediation"
 	"github.com/Floodww/RoutineOps/internal/server/siem"
 	"github.com/Floodww/RoutineOps/internal/server/storage"
 )
@@ -69,6 +70,12 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 	// Тик молча пустой, пока лицензия не покрывает фичу или источник не включён/не настроен.
 	go cvesync.NewSyncer(db, func() bool { return mgr.Has(license.FeatureCVEScan) }, logger).Run()
 
+	// Фоновый ремедиатор запрещённого ПО (за лицензией FeatureAutoRemediation). Периодически
+	// ищет forbidden-нарушения инвентаря и, если авто-устранение включено конфигом, ставит
+	// remove_software-задачи (переиспользуя путь удаления ПО). Тик молча пустой, пока лицензия
+	// не покрывает фичу или авто-устранение выключено (дефолт — выкл, деструктивно).
+	go remediation.NewRemediator(db, func() bool { return mgr.Has(license.FeatureAutoRemediation) }, logger).Run()
+
 	// FileVault recovery-escrow (ESCROW_*) — отдельная enterprise-фича, в этом форке ещё
 	// не реализована; молчание выглядело бы как «эскроу включён».
 	if os.Getenv("ESCROW_RECIPIENT") != "" || os.Getenv("ESCROW_RECIPIENT_FPR") != "" {
@@ -120,6 +127,8 @@ func enterpriseSetup(_ *gateway.Gateway, db *storage.DB, logger *slog.Logger, pu
 		api.WithAdminRoutes(api.ReportsRoutes(mgr)),
 		// Policy-as-code / GitOps: декларативные глобальные software-правила + детект дрейфа.
 		api.WithAdminRoutes(api.PolicyAsCodeRoutes(mgr)),
+		// Авто-устранение запрещённого ПО: настройка + лог (устраняет фоновый ремедиатор выше).
+		api.WithAdminRoutes(api.AutoRemediationRoutes(mgr)),
 		// /capabilities — какие enterprise-фичи активны (веб гейтит по ним UI). Все роли.
 		api.WithRoutes(api.CapabilitiesRoutes(mgr)),
 	}

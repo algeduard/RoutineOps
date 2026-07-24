@@ -33,4 +33,7 @@ const (
 	// набор глобальных software-правил как JSON source-of-truth, сервер реконсилит живые
 	// правила и показывает дрейф (расхождение живого состояния с декларацией).
 	FeaturePolicyAsCode = "policy_as_code"
+	// FeatureAutoRemediation — авто-устранение запрещённого ПО: фоновое создание задач
+	// удаления (task_type='remove_software') по forbidden-нарушениям инвентаря.
+	FeatureAutoRemediation = "auto_remediation"
 )

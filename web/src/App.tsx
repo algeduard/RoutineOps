@@ -32,6 +32,7 @@ import Scim from "@/pages/Scim"
 import AlertRouting from "@/pages/AlertRouting"
 import Reports from "@/pages/Reports"
 import PolicyAsCode from "@/pages/PolicyAsCode"
+import AutoRemediation from "@/pages/AutoRemediation"
 import Profile from "@/pages/Profile"
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -90,6 +91,7 @@ export default function App() {
           <Route path="alert-routing" element={<AdminRoute><AlertRouting /></AdminRoute>} />
           <Route path="reports" element={<AdminRoute><Reports /></AdminRoute>} />
           <Route path="policy-as-code" element={<AdminRoute><PolicyAsCode /></AdminRoute>} />
+          <Route path="auto-remediation" element={<AdminRoute><AutoRemediation /></AdminRoute>} />
           <Route path="profile" element={<Profile />} />
         </Route>
       </Routes>
